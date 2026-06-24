@@ -353,6 +353,21 @@ in
       expected = [ ];
     };
 
+    # ===== override IS the fused `propagate ∘ applyDelta` (Acar §4.3 + §4.5) =====
+    # The fused def threads a `pending` field: applyDelta appends the dirty seed,
+    # propagate drains it and resets pending.dirty = []. A non-fused store-splice
+    # would carry NO `pending`. So the presence of `pending` (and its quiescent
+    # reset) is the discriminating signature that `genRebuild.override` resolves
+    # to drivers.override, not override.nix's plain splice.
+    test-override-is-fused = {
+      expr = (override pinCtx "c" { weight = 200; }) ? pending;
+      expected = true;
+    };
+    test-override-fused-quiescent = {
+      expr = (override pinCtx "c" { weight = 200; }).pending.dirty;
+      expected = [ ];
+    };
+
     # ===== hand-computed pins =====
     test-pin-override-c-a = {
       expr = ovC.store.a;

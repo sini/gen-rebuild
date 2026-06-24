@@ -92,6 +92,7 @@ rec {
         # Union-cone: seeds + their dependents (entire affected region).
         unionCone = lib.unique (seeds ++ lib.concatMap (graph.dependentsOf accessor') seeds);
         unionSet = lib.genAttrs unionCone (_: true);
+        seedSet = lib.genAttrs seeds (_: true);
         newHashOf = id: hashGuarded hashOf builtStore.${id};
 
         # Multi-seed splice: single lib.fix over the union-cone.
@@ -104,13 +105,25 @@ rec {
               id:
               let
                 spliced = ctx.store // s;
-                # Use any seed for needsEval — they all start the work.
+                # EVERY seed is a forced recompute, not just the first. needsEval's
+                # `id == changedId` clause fires for a SINGLE changed input; a batch
+                # has N changed inputs (Acar §4.3: each δ ⊕ σ dirties its own node),
+                # so a seed whose OWN data changed must recompute even when its dep
+                # hashes did not move (its value comes from the new nodeData, not from
+                # a moved dependency). Gating on only `lib.head seeds` would reuse the
+                # other seeds' STALE values — an unsound early-cutoff (RTD §5.3 only
+                # licenses reuse for nodes whose inputs are ALL unchanged).
+                isSeed = seedSet ? ${id};
+                # The dependents (non-seed cone nodes) still ride the hash-moved gate,
+                # seeded at the head — they recompute iff a cone dep's hash moved.
                 seedForPredicate = lib.head seeds;
-                mustEval = needsEval {
-                  inherit trace;
-                  coneSet = unionSet;
-                  inherit newHashOf accessor';
-                } seedForPredicate id;
+                mustEval =
+                  isSeed
+                  || needsEval {
+                    inherit trace;
+                    coneSet = unionSet;
+                    inherit newHashOf accessor';
+                  } seedForPredicate id;
               in
               if mustEval then recompute accessor' spliced id else ctx.store.${id}
             )
