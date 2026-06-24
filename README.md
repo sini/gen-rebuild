@@ -26,26 +26,33 @@ build-systems taxonomy, factored out of the *scheduler* (gen-scope) and the
 ## Overview
 
 gen-rebuild does **not** schedule or evaluate; it decides reuse and drives change
-propagation. v1 functionally composes **gen-graph** (the topology oracle);
-**gen-scope** is wired for the v2 warm-cache seam (S1), not used by v1:
+propagation. It functionally composes **gen-graph** (the topology oracle) for every
+structural query, and **gen-scope** is now consumed for the cyclic
+convergence-loop — `runScc` ascends each strongly-connected component to its least
+fixed point, and `restabilize` re-solves a change's cone stratum-by-stratum over
+the condensation:
 
 ```
-gen-graph   (topology oracle)   dependentsOf · cycles · transpose
+gen-graph   (topology oracle)   dependentsOf · cycles · condensation · canReach
    │  read-only queries over a caller-supplied edge accessor
-gen-scope   (scheduler)         demand-driven evaluation  ·  v2 seam (wired, unused in v1)
+gen-scope   (scheduler)         demand-driven evaluation  ·  cyclic convergence seam
    │
 gen-rebuild (rebuilder)  ◄── THIS LIB
-      owns: the flat relocatable result-store + trace, the reuse decision,
-            and the change-propagation driver.
+      owns: the flat relocatable result-store + verifying trace, the reuse
+            decision, the change/propagate drivers, the structural deltas,
+            and the cyclic re-stabilizer.
 ```
 
 It owns a flat, **relocatable** result-store (plain values, not thunks closed over
 a `lib.fix self`) — relocatability is what makes reuse-across-change possible. A
 change recomputes only the dependent **cone** via a reverse-topo splice
-(`priorStore // fix-of-cone`); everything else is reused byte-for-byte. v1 runs its
-own thin store-backed `lib.fix` eval loop (gen-scope's evaluator is wired in at
-v2). It is the **dirty-bit, whole-cone, eager, intra-eval** core — sound and
-demonstrable.
+(`priorStore // fix-of-cone`); everything else is reused byte-for-byte. The acyclic
+core runs its own thin store-backed `lib.fix` eval loop; the cyclic path stratifies
+the solve bottom-up over `graph.condensation` and runs a per-SCC fixpoint
+(`runScc`). The surface is now the **full v1+v2 rebuilder**: dirty-bit reuse with
+per-node early-cutoff, exact AFFECTED, provenance, change/propagate drivers,
+structural deltas, and a cyclic re-stabilizer — sound and demonstrable, with each
+gap stated honestly.
 
 ## Terminology
 
@@ -58,6 +65,12 @@ demonstrable.
 | Dirty set | changed ids ∪ their dependent cones (v1 over-approx) | Reps–Teitelbaum–Demers 1983 (AFFECTED set) |
 | Splice | `priorStore // fix-of-cone` — recompute the cone, reuse rest | Acar 2002 (change propagation) |
 | BuiltCtx | the threaded `{ store, trace, accessor, recompute, hashOf }` | — |
+| AFFECTED | the keys whose value *actually* moved — post-filtered, not precomputed | Reps–Teitelbaum–Demers 1983 §4.3 |
+| Early-cutoff | reuse a node whose inputs are all unchanged-hash | RTD 1983 (§4.1 value-cutoff, §5.3 NeedToBeEvaluated) |
+| Change / Propagate | `applyDelta` (rewrite data) vs `propagate` (drain dirty-set) | Acar 2002 (§4.3 change, §4.5 propagate) |
+| Support | the transitive declared *producers* of a node (name-faithful) | Radul 2009 §6.1 |
+| Lattice | per-node `{ bottom; join; eq?; widen?; maxIter? }` for a cyclic solve | Arntzenius 2016 (Datafun Lemma 4) |
+| SCC / condensation | the cyclic strata, solved producers-first bottom-up | Tarjan 1972 / Kosaraju (via gen-graph) |
 
 ## Gen Ecosystem
 
@@ -151,21 +164,27 @@ ctx'.store
 ### `build`
 
 ```
-build :: { accessor, recompute, hashOf } -> BuiltCtx
+build :: { accessor, recompute, hashOf, fixpoint ? null } -> BuiltCtx
 ```
 
-Full evaluation into a flat store + verifying trace. Pre-checks acyclicity via
-`graph.cycles` and **throws a catchable located-cycle blame** on a cycle — the
-`{ why; cycle; path }` record is constructed from `graph.cycles` and embedded in
-the thrown error, so `builtins.tryEval` catches it instead of diverging inside the
-`lib.fix` loop. (Surfacing the blame as a *returned, inspectable* value is later.)
+Full evaluation into a flat store + verifying trace.
 
 - `accessor` — a gen-graph accessor `{ edges, nodes, nodeData, parent }`.
 - `recompute :: accessor -> store -> id -> value` — the caller's node-eval.
 - `hashOf :: value -> hash` — a content hash; partial on function-bearing values
   (treated as always-dirty, `trace.<id>.hash = null`).
+- `fixpoint ? null` — when `null` (default), `build` is **exactly v1** (see below).
+  When present (`{ lattices = { <id> = { bottom; join; … }; }; }`), `build` admits
+  cycles whose every node carries a lattice and solves the store
+  condensation-stratified — see [Cyclic fixpoints](#cyclic-fixpoints).
 
-Returns `BuiltCtx = { store, trace, accessor, recompute, hashOf }`.
+In the **v1 (acyclic)** path it pre-checks acyclicity via `graph.cycles` and
+**throws a catchable located-cycle blame** on a cycle — the `{ why; cycle; path }`
+record is constructed from `graph.cycles` and embedded in the thrown error, so
+`builtins.tryEval` catches it instead of diverging inside the `lib.fix` loop.
+
+Returns `BuiltCtx = { store, trace, accessor, recompute, hashOf }` (plus `fixpoint`
+when one was supplied).
 
 ### `override`
 
@@ -194,8 +213,123 @@ recompute, besides `id` itself.
 dirtySet :: BuiltCtx -> [changedId] -> [id]
 ```
 
-Deduped union of the changed ids and their dependent cones (v1 over-approximation;
-the hash-cutoff that prunes unchanged-hash nodes is the v2 `earlyCutoff`).
+Deduped union of the changed ids and their dependent cones (the cheap
+over-approximation; the hash-cutoff that prunes unchanged-hash nodes is
+`earlyCutoff` / `needsEval`, and the exact subset is `affectedSet`).
+
+### Strategies
+
+The three reuse predicates, all routed through the null-safe hash gate.
+
+```
+verify      :: BuiltCtx -> { accessor', spliced } -> id -> { reuse; value }
+earlyCutoff :: { hashOf } -> { oldHash, newValue } -> bool
+needsEval   :: { trace, coneSet, newHashOf, accessor' } -> changedId -> id -> bool
+```
+
+- `verify` — Mokhov §4.2 trace-validity: reuse iff `id`'s recorded deps still match
+  and every dep's hash is clean.
+- `earlyCutoff` — RTD §4.1 unchanged-value cutoff (*post*-recompute): true iff the
+  freshly recomputed value hashes equal to `oldHash`.
+- `needsEval` — RTD §5.3 NeedToBeEvaluated (*pre*-cutoff): the single gate
+  `override`/`affectedSet`/`propagate` share; recompute iff `id` is the changed id,
+  has a null hash, or has an in-cone dep whose hash moved.
+
+### Exact AFFECTED
+
+```
+affectedSet :: BuiltCtx -> { accessor', changedIds } -> { affected; hashes; reused }
+```
+
+The **exact** AFFECTED set for a multi-id data change (RTD §4.3): splices the
+over-approx cone with the `needsEval` gate, then post-filters `affected` to the
+nodes whose hash actually moved (`affected ⊆ cone`). `reused` are the unaffected
+cone nodes; `hashes` are the new hashes for the whole cone. Data-change envelope
+(acyclic, fixed edges).
+
+### Provenance
+
+The pure read layer over the trace — zero recompute. **Name-faithful** to Radul
+§6.1 (no TMS, no merge-lattice, no worldviews).
+
+```
+support       :: BuiltCtx -> id -> [id]
+supportDirect :: BuiltCtx -> id -> [id]
+why           :: BuiltCtx -> { id, changedId, cutoffs ? {} } -> WhyResult
+whyNot        :: BuiltCtx -> { id, changedId, cutoffs ? {} } -> reason | null
+```
+
+- `support` — the transitive declared producers of `id` (the dual of `affected`),
+  read from the trace snapshot.
+- `supportDirect` — the depth-1 declared producers (immediate in-edges).
+- `why` — the verdict an override of `changedId` *would* produce for `id`:
+  `unaffected` / `recomputed` / `cutoff` (Acar §7 read-rule, reframed).
+- `whyNot` — the negative wrapper: `null` when recomputed, else the reason.
+
+### Drivers
+
+The Acar change/propagate split, batching, pull-semantics force, and the fused
+override. Dirtiness is a **value** (`ctx.pending.dirty`), not a mutated flag.
+
+```
+applyDelta :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
+batch      :: BuiltCtx -> [{ id, newDecls }] -> BuiltCtx
+propagate  :: BuiltCtx -> BuiltCtx
+force      :: BuiltCtx -> id -> value
+forceCtx   :: BuiltCtx -> id -> { value; ctx }
+override   :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
+```
+
+- `applyDelta` — Acar §4.3 change: rewrite `changedId`'s data, stage it in
+  `pending.dirty`, recompute nothing.
+- `batch` — fold `applyDelta` over many deltas (one `propagate` then drains them).
+- `propagate` — Acar §4.5 drain-to-quiescence: union-cone splice over all seeds,
+  `needsEval`-gated, clearing `pending`.
+- `force` / `forceCtx` — Hammer/Adapton demand: drain then read the value
+  (`forceCtx` also returns the quiescent ctx). **Full-drain**, not Adapton's
+  selective per-edge repair (the dropped S6 seam).
+- `override` — the fused convenience `propagate ∘ applyDelta`; this is the
+  **exported** `override` (it shadows the standalone definition via the `//`-fold),
+  byte-identical on `.store`/`.trace` for a data change.
+
+### Structural
+
+Topology-changing deltas (edges move, not just data). Both rebuild a full accessor
+record and re-write `trace.deps` for every edge-touched node.
+
+```
+mkAccessor    :: { edges, nodes, nodeData, parent } -> accessor
+retract       :: BuiltCtx -> deadId -> retractPolicy -> BuiltCtx
+applyEdgeDelta :: BuiltCtx -> changedId -> newEdges -> BuiltCtx
+```
+
+- `mkAccessor` — rebuild a full accessor record (`edges` deduped via `lib.unique`).
+- `retract` — Radul §6.2 `kick-out!` (destructive half): delete `deadId` and splice
+  it out of every dependent. `retractPolicy ∈ { "error", "recompute-without" }`
+  (default `"error"` throws on declared in-edges). No cycle recheck — deletion only
+  shrinks the graph.
+- `applyEdgeDelta` — Forgy `modify = delete + add` over a node's edge set: replace
+  `changedId`'s edges (deduped), sub-build any newly-reachable producers, then
+  reverse-cone splice. A located `reCycleCheck` runs when edges were added.
+
+### Cyclic
+
+Graphs outside the acyclic envelope. **No optimality claim** — fixed-point-equality
+to the unique lfp, with a `maxIter` divergence blame.
+
+```
+build (fixpoint param) :: { …, fixpoint = { lattices } } -> BuiltCtx
+runScc      :: { accessor, store, recompute, scc, higherStrata, lattices } -> { <id> = value }
+restabilize :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
+```
+
+- `build`'s `fixpoint` param — see [Cyclic fixpoints](#cyclic-fixpoints).
+- `runScc` — solve one SCC to its least fixed point by iterating each member's
+  lattice from ⊥ to quiescence (Arntzenius Lemma 4 ascent, or Sloane §2.2 naive
+  iterate-to-stabilization for an overwrite join).
+- `restabilize` — the cyclic-capable `override`: re-solve only the change's cone,
+  acyclic strata by recompute-and-splice (== `override`), cyclic strata by
+  `runScc`. Requires `ctx.fixpoint != null`.
 
 ## Edge Convention
 
@@ -216,22 +350,63 @@ plus fixed adversarial shapes. The guarantee is precisely scoped:
   set) is the v2 seam (`applyDelta` / `retract`), out of v1 scope.
 - **Hashable values.** Store byte-equality is over toJSON-able node values; a
   function-valued node is sound-by-always-dirty (`hash = null`), not by `==`.
-- **Located cycles, not divergence.** A cyclic accessor yields a **catchable
-  throw** (the `{ why; cycle; path }` blame embedded in the error), never Nix's
-  uncatchable infinite recursion. Surfacing the blame as a returned, inspectable
-  value is a later goal.
+- **Located cycles, not divergence.** With `fixpoint = null` a cyclic accessor
+  yields a **catchable throw** (the `{ why; cycle; path }` blame embedded in the
+  error), never Nix's uncatchable infinite recursion. `tryEval` does **not** catch
+  a `lib.fix` black-hole, so divergence is guarded *structurally* — by the located
+  prechecks (`graph.cycles`, `reCycleCheck`) and by `runScc`'s `maxIter`, never by
+  catching infinite recursion.
 
-Deferred: v2 (rebuilder strategies, provenance, drivers, the generic seams), v3
-(intra-eval optimality — `O(|AFFECTED|)`, the Adapton sharing/swapping/switching
-triple). The impure cross-eval shell is out of scope (a stateful substrate, not a
+### Cyclic fixpoints
+
+`build`'s `fixpoint` param is the opt-in to cyclic graphs. With `fixpoint = null`
+(default) `build` is **exactly v1** — throw-on-any-cycle, `lib.fix` store, no
+`fixpoint` key in the ctx. When present, a cycle is admitted iff **every** cyclic
+node carries a declared **per-node lattice**:
+
+```nix
+ctx = build {
+  inherit accessor recompute hashOf;
+  fixpoint.lattices = {
+    a = { bottom = { }; join = prev: cur: prev // cur; };  # genuine-join semilattice
+    b = { bottom = { }; join = prev: cur: prev // cur; eq = (a: b: a == b); widen = null; maxIter = 100; };
+  };
+};
+```
+
+`build` then solves the store **condensation-stratified, producers-first**: each
+acyclic singleton recomputes reading already-converged lower strata; each cyclic
+SCC is solved once by `runScc` (iterate each member's lattice from ⊥ to
+quiescence). `restabilize` re-solves a change's cone the same way.
+
+Three caveats:
+
+- **Fixed-point-equality, not byte-identity.** A cyclic SCC's value matches a
+  from-scratch build by *equality of two fixpoint computations to the same unique
+  least fixed point* (Arntzenius Lemma 4 on a finite-height bounded semilattice) —
+  **not** the v1 byte-identical-to-the-acyclic-`lib.fix` property. The acyclic
+  strata retain the v1 byte-identical guarantee.
+- **Consumer obligation: monotonicity + finite height.** `runScc` does **not** check
+  that `recompute`/`join` are monotone or that the lattice is finite-height. A
+  non-monotone step can oscillate; an infinite-ascending chain never quiesces. Use
+  `widen` to force finite ascent on tall lattices.
+- **The only divergence guard is `maxIter`.** On overrun `runScc` throws a located,
+  `tryEval`-catchable `fixpoint-diverged` blame. The cyclic path is explicitly
+  **outside RTD's acyclic envelope** — no `O(|AFFECTED|)` optimality, no
+  never-assign-a-non-final-value invariant.
+
+Deferred: v3 (intra-eval optimality — true `O(|AFFECTED|)` via characteristic-graph
+cutoff edges, containment-pruned propagation, the Adapton selective per-edge
+repair). The impure cross-eval shell is out of scope (a stateful substrate, not a
 deferred component).
 
 ## Demo
 
 [`examples/dag/`](examples/dag/) — the **B demo**: override one host of a small
 synthetic fleet and watch only its dependent cone recompute (proven by a poisoned
-recompute), byte-identical to a full rebuild, with a cyclic variant resolving to a
-located blame.
+recompute), byte-identical to a full rebuild, with a cyclic variant — an undeclared
+cycle resolves to a located blame, while a lattice-declared cycle re-stabilizes via
+`runScc`.
 
 ```sh
 nix eval -f examples/dag
@@ -248,20 +423,23 @@ incremental core. A runnable zen side-by-side is a v1 follow-on TODO.
 cd ci && nix flake check
 ```
 
-Uses `gen.lib.mkCi` (nix-unit). 50 tests across 6 suites, including the 120-seed
-soundness property and the B demo's thesis assertions.
+Uses `gen.lib.mkCi` (nix-unit). 179 tests across 16 suites, including the 120-seed
+soundness property, the B demo's thesis assertions, and the cyclic/structural
+generators.
 
 ## Theoretical Foundations
 
 | Paper | Relationship | Used for |
 |-------|-------------|----------|
-| Mokhov, Mitchell & Peyton Jones (2018) "Build Systems à la Carte" | **Implements** | The rebuilder dimension, factored from the scheduler (gen-scope) and topology oracle (gen-graph); v1 is the dirty-bit rebuilder over a verifying trace |
-| Hammer et al. (2014) "Adapton" | Informed by | The pure-core / external-shell *line* — the demand-driven amortization shell is deferred (out of v1 scope), and purity gives read-only-inner-memo soundness for free. v1 is an *eager dirty-bit* rebuilder, not Adapton's demand-driven dirty/clean |
-| Arntzenius & Krishnaswami (2016) "Datafun" | Informed by | The dependent cone is gen-graph's reverse reachability (a Datafun-derived query); Datafun's semi-naive incremental fixpoint enters at v2 (`restabilize`) |
-| Acar et al. (2002) "Adaptive Functional Programming" | Informed by | Change propagation + the reverse-topo splice; containment recovery for `O(\|AFFECTED\|)` is named as a v3 open problem |
-| Reps, Teitelbaum & Demers (1983) | Informed by | `O(\|AFFECTED\|)` optimality + characteristic graphs — the v3 go/no-go gate |
-| Radul & Sussman (2009) "Art of the Propagator" | Informed by | Provenance + retraction (v2 `support` / `why` / `retract`) |
-| Forgy (1982) "RETE" | Informed by | Delta propagation (v2 change-propagation drivers) |
+| Mokhov, Mitchell & Peyton Jones (2018) "Build Systems à la Carte" | **Implements** | The rebuilder dimension, factored from the scheduler (gen-scope) and topology oracle (gen-graph); the dirty-bit rebuilder over the flat store (§3.1) + verifying trace (§4.2.2), `verify` (§4.2), acyclicity precheck (§2.1/§4.1) |
+| Reps, Teitelbaum & Demers (1983) | Informed by | The AFFECTED set (§4.3, `affectedSet`/the post-filter), the unchanged-value cutoff (§4.1, `earlyCutoff`), NeedToBeEvaluated (§5.3, `needsEval`); true `O(\|AFFECTED\|)` optimality + characteristic graphs remain the v3 go/no-go gate |
+| Acar et al. (2002) "Adaptive Functional Programming" | Informed by | The change/propagate split (§4.3 `applyDelta`, §4.5 `propagate`), the reverse-topo splice (§7 correctness), the adg read backward for `support` (§4.4); containment recovery for `O(\|AFFECTED\|)` is a named v3 open problem |
+| Forgy (1982) "RETE" | Informed by | The ± change-token vocabulary: `applyDelta`/`batch` are the `+` token, `applyEdgeDelta` is `modify = delete + add` |
+| Hammer et al. (2014) "Adapton" | Informed by | The demand/force interface (`force`/`forceCtx`). Note: our force is **full-drain**, not Adapton's selective per-edge repair (the dropped S6 seam, impure / O(N²) in pure Nix) |
+| Radul & Sussman (2009) "Art of the Propagator" | Informed by | Provenance (§6.1 support, **name-faithful only** — `support`/`why`/`whyNot`) + retraction (§6.2 `kick-out!`, `retract`'s destructive-delete half); no TMS / merge-lattice / worldviews |
+| Arntzenius & Krishnaswami (2016) "Datafun" | Informed by | The dependent cone is gen-graph's reverse reachability (a Datafun-derived query); Lemma 4 (finite-height iterate-from-⊥) grounds `runScc`'s genuine-join lattices |
+| Sloane (2010) §2.2 / Magnusson–Hedin "Circular Reference Attributes" | Informed by | The overwrite / no-op "join" case for `runScc`: naive iterate-to-stabilization (converges by peer-agreement, not lattice ascent) |
+| Tarjan (1972) / Kosaraju | Informed by | The SCC partition + condensation (via gen-graph, closure-based O(n²)) that stratifies the cyclic `build`/`restabilize` solve producers-first |
 
 Full design + milestones: `den-architecture/gen-specs/gen-rebuild/`.
 
