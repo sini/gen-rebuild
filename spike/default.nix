@@ -4,9 +4,10 @@
   genRebuild,
 }:
 let
-  # spike modules added by later tasks: revadj, vpush, vsummary
+  # spike modules added by later tasks: vpush, vsummary
   fixtures = import ./fixtures.nix { inherit lib graph genRebuild; };
   topo = import ./topo.nix { inherit lib graph; };
+  revadj = import ./revadj.nix { inherit lib graph; };
   instrument = import ./instrument.nix { inherit lib graph genRebuild; };
   # baseline exposes the FUNCTION `ctx: changes: { store; metrics; }`.
   baseline =
@@ -23,6 +24,7 @@ in
   inherit
     fixtures
     topo
+    revadj
     instrument
     baseline
     ;
