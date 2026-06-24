@@ -12,7 +12,9 @@
 let
   args = { inherit lib graph scope; };
   # Per-concern modules; one file = one concern. Merged left-to-right with //.
-  # The surface grows here as tasks land (build, affected, dirtySet, override).
+  # The surface grows here as tasks land. drivers.nix is positioned after
+  # override.nix so the fused `override` definition wins (drivers.override
+  # shadows override.nix:override via the //-fold).
   modules = [
     ./build.nix
     ./affected.nix
@@ -21,6 +23,7 @@ let
     ./strategies.nix
     ./affectedSet.nix
     ./provenance.nix
+    ./drivers.nix
   ];
 in
 lib.foldl' (acc: m: acc // import m args) { } modules
