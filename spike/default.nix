@@ -31,6 +31,16 @@ let
         instrument
         ;
     }).baseline;
+  # vsummary exposes the FUNCTION `ctx: changes: { store; metrics; }`.
+  vsummary =
+    (import ./vsummary.nix {
+      inherit
+        lib
+        graph
+        genRebuild
+        instrument
+        ;
+    }).vsummary;
 in
 {
   inherit
@@ -40,5 +50,6 @@ in
     instrument
     vpush
     baseline
+    vsummary
     ;
 }
