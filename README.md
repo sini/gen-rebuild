@@ -45,6 +45,28 @@ gen-rebuild = import ./. { inherit lib graph scope; };
 cd ci && nix flake check
 ```
 
+## Example
+
+[`examples/dag/`](examples/dag/) — the **B demo**: override one host of a small
+synthetic fleet and watch only its dependent cone recompute (proven by a poisoned
+recompute), byte-identical to a full rebuild, with a cyclic variant resolving to a
+located blame instead of infinite recursion.
+
+```sh
+nix eval -f examples/dag
+```
+
+## Contrast: dirty-bit rebuilder vs. effects (zen)
+
+gen-rebuild externalizes the dependency graph and result store as inspectable
+values: reuse is a reverse-topo store splice (`priorStore // fix-of-cone`) driven
+by a dirty-bit over the graph — the Mokhov 2018 *rebuilder* made explicit. zen
+(Vic's stream/effects module system) reaches the same incremental behaviour from
+the other side, via algebraic effects: re-evaluation is scoped and memoized by
+effect handlers rather than a graph query. Two dual lenses on one incremental
+core. A runnable zen side-by-side of the B demo is a **v1 follow-on TODO** (see
+[`examples/dag/README.md`](examples/dag/README.md)).
+
 ## Design
 
 `den-architecture/gen-specs/gen-rebuild/2026-06-23-gen-rebuild-design.md`.
