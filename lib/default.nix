@@ -24,6 +24,7 @@ let
     ./affectedSet.nix
     ./provenance.nix
     ./drivers.nix
+    ./structural.nix
   ];
 in
 lib.foldl' (acc: m: acc // import m args) { } modules
