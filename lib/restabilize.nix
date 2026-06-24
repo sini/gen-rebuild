@@ -33,8 +33,10 @@
 #
 # `graph`/`scope` are threaded for sibling ops (restabilize lands beside this);
 # runScc itself takes its topology via the `accessor` field.
-{ lib, ... }:
+{ lib, graph, ... }:
 let
+  inherit (import ./hash.nix { }) hashGuarded hashMoved;
+
   # runScc — solve one SCC to its least fixed point (per-member iterate-from-⊥).
   #
   # runScc :: {
@@ -98,7 +100,136 @@ let
     in
     # Per-member ⊥ seed (Arntzenius iterate-from-bottom).
     go 0 (lib.genAttrs M (m: lattices.${m}.bottom));
+
+  # restabilize — the CYCLIC-CAPABLE analogue of `override`.
+  #
+  # `restabilize ctx changedId newDecls` replaces changedId's nodeData, then
+  # re-solves ONLY the dependent cone of changedId — acyclic cone strata by
+  # recompute-and-splice (== override), cyclic cone strata by `runScc` (per-SCC
+  # least fixed point) — reading every non-cone node out of the prior store
+  # (held fixed). Requires `ctx.fixpoint != null` (build with a fixpoint first).
+  # Returns an updated cyclic-capable BuiltCtx: `accessor` is the NEW topology
+  # and `fixpoint` is threaded forward UNCHANGED, so restabilize ∘ restabilize
+  # stays cyclic-capable.
+  #
+  # SOUNDNESS (read precisely — restabilize makes NO optimality claim):
+  #   - Non-cone node n: n ∉ dependentsOf(changedId) ⇒ n does not transitively
+  #     read changedId ⇒ its value is unchanged from ctx.store, which equals a
+  #     from-scratch build over accessor' (Acar 2002 §4.5/§7 change propagation:
+  #     only the cone re-evaluates; change propagation "yields essentially the
+  #     same result as a complete re-execution on the changed inputs"). So the
+  #     fold is SEEDED at ctx.store and non-cone strata are simply skipped.
+  #   - ACYCLIC cone node: recomputed reading already-solved lower strata as
+  #     externals ⇒ BYTE-IDENTICAL to a full rebuild's value. This is exactly
+  #     v1 `override`'s guarantee, retained in full.
+  #   - CYCLIC cone SCC (whole-SCC, because mutual reachability ⇒ all-or-none in
+  #     the cone): `runScc` ascends to its lfp on the SAME finite-height
+  #     semilattices with the SAME externals as a from-scratch build over
+  #     accessor'. On a finite-height bounded semilattice the lfp is UNIQUE
+  #     (Arntzenius 2016 Datafun Lemma 4), so restabilize's incremental cyclic
+  #     solve and the full build coincide: FIXED-POINT-EQUALITY. This is NOT the
+  #     v1 byte-identical-to-the-acyclic-fix property — it is equality of two
+  #     fixpoint computations to the same unique lfp.
+  #   - Under a NON-MONOTONE recompute the only guarantee is runScc's per-member
+  #     maxIter located blame (a catchable throw, never Nix infinite recursion).
+  #
+  # EXPLICITLY OUTSIDE RTD 1983's acyclic envelope: RTD requires noncircularity,
+  # and BOTH its O(|AFFECTED|) optimality bound and its never-assign-a-
+  # non-final-value invariant break on cycles. restabilize claims neither — its
+  # cost is O(height · |SCC| · recompute) per cyclic stratum (Arntzenius-grounded
+  # Kleene ascent), RTD-disclaimed. The AFFECTED post-filter below is reused only
+  # as a trace-pruning convenience (re-hash the cone nodes that actually moved),
+  # NOT as an optimality claim.
+  restabilize =
+    ctx: changedId: newDecls:
+    let
+      fixpoint = ctx.fixpoint or null;
+
+      # accessor' : prior topology with changedId's nodeData replaced. Edges fall
+      # through to ctx.accessor (unchanged) ⇒ same cyclic set, same condensation.
+      accessor' = ctx.accessor // {
+        nodeData = id: if id == changedId then newDecls else ctx.accessor.nodeData id;
+      };
+
+      # Relaxed precheck on the new topology (edges fixed ⇒ same cyclic set, but
+      # computed fresh to mirror build). A cyclic node lacking a lattice is a
+      # LOCATED blame — restabilize's own check (build would have rejected the
+      # fixpoint up front, but a post-build mutation can drop one).
+      cyclic = graph.cycles accessor';
+      missing = builtins.filter (id: !(fixpoint.lattices ? ${id})) cyclic;
+      undeclaredBlame = {
+        why = "undeclared-cyclic-node";
+        nodes = missing;
+        cycle = cyclic;
+      };
+
+      cond = graph.condensation accessor';
+      cyclicSet = lib.genAttrs cyclic (_: true);
+
+      # Dependent cone of changedId (reverse reachability; valid on cyclic
+      # graphs — Arntzenius 2016 reverse reachability).
+      cone = lib.unique ([ changedId ] ++ graph.dependentsOf accessor' changedId);
+      coneSet = lib.genAttrs cone (_: true);
+
+      # Bottom-up fold (producers-first over the condensation), accumulator SEEDED
+      # at ctx.store: non-cone strata are skipped (their ctx.store values are
+      # unaffected by a data change to changedId and stay), cone strata are
+      # re-solved reading acc (already-solved lower strata) as externals.
+      solved = lib.foldl' (
+        acc: tag:
+        let
+          members = cond.members tag;
+          coneMembers = builtins.filter (m: coneSet ? ${m}) members;
+          isCyclicStratum = builtins.any (m: cyclicSet ? ${m}) members;
+        in
+        if coneMembers == [ ] then
+          # Stratum untouched by the cone: keep its ctx.store values verbatim.
+          acc
+        else if isCyclicStratum then
+          # Whole SCC is in the cone (mutual reachability ⇒ all-or-none); re-solve
+          # the component once to its lfp, reading acc (lower strata) as externals.
+          acc
+          // runScc {
+            inherit recompute;
+            accessor = accessor';
+            store = { };
+            scc = members;
+            higherStrata = acc;
+            lattices = fixpoint.lattices;
+          }
+        else
+          # Acyclic cone singleton: recompute reading acc (lower strata) as
+          # externals. Byte-identical to a full rebuild's value (== override).
+          acc // lib.genAttrs coneMembers (m: recompute accessor' acc m)
+      ) ctx.store cond.bottomUp;
+
+      store = solved;
+      newHashOf = id: hashGuarded hashOf store.${id};
+      # AFFECTED = the cone nodes whose hash actually moved (RTD §4.3 post-filter,
+      # null-safe). Reused/unaffected cone nodes keep their prior trace entry.
+      affected = builtins.filter (id: hashMoved (newHashOf id) (ctx.trace.${id}.hash or null)) cone;
+      trace' =
+        ctx.trace
+        // lib.genAttrs affected (id: {
+          deps = accessor'.edges id;
+          hash = newHashOf id;
+        });
+
+      # recompute / hashOf come from ctx; fixpoint is threaded forward unchanged.
+      inherit (ctx) recompute hashOf;
+    in
+    if fixpoint == null then
+      throw "gen-rebuild: restabilize requires ctx.fixpoint (build with a fixpoint param first)"
+    else if missing != [ ] then
+      throw "gen-rebuild: undeclared cyclic node: ${builtins.toJSON undeclaredBlame}"
+    else
+      {
+        store = store;
+        trace = trace';
+        accessor = accessor';
+        inherit recompute hashOf fixpoint;
+      };
 in
 {
-  inherit runScc;
+  inherit runScc restabilize;
 }

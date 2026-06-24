@@ -41,7 +41,7 @@
 { lib, graph, ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded;
-  inherit (import ./restabilize.nix { inherit lib; }) runScc;
+  inherit (import ./restabilize.nix { inherit lib graph; }) runScc;
 
   build =
     {

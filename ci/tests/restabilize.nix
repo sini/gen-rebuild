@@ -2,10 +2,16 @@
   lib,
   genRebuild,
   graph,
+  mkCyclicCase,
   ...
 }:
 let
-  inherit (genRebuild) build runScc;
+  inherit (genRebuild)
+    build
+    override
+    runScc
+    restabilize
+    ;
 
   # --- Fixture 1: genuine-join reachability SCC (Arntzenius Lemma-4 ascent) ---
   # 2-node cycle a<->b. Per-node lattice = powerset of {a,b} under union.
@@ -201,6 +207,227 @@ let
     ];
     lattices = perMemberLattices;
   };
+
+  # ==========================================================================
+  # restabilize fixtures + the fixed-point-equality soundness property.
+  # ==========================================================================
+
+  # --- Property: restabilize == from-scratch fixpoint build (120 seeds) ---
+  # For a random cyclic graph, restabilize(build acc) over a data-change to
+  # changedId must yield the SAME store as a from-scratch build over acc' (the
+  # changed topology). For the cyclic strata this is FIXED-POINT-EQUALITY: both
+  # converge to the unique lfp on the finite-height overwrite lattices with the
+  # same externals (Arntzenius 2016 Lemma 4); the acyclic strata are byte-
+  # identical (== override). Convergence is guaranteed every seed (max-fold).
+  restabSound =
+    seed:
+    let
+      c = mkCyclicCase seed;
+      ctx = build {
+        accessor = c.acc;
+        inherit (c) recompute hashOf;
+        fixpoint = c.lattices;
+      };
+      r = restabilize ctx c.changedId c.newDecls;
+      oracle = build {
+        accessor = c.acc';
+        inherit (c) recompute hashOf;
+        fixpoint = c.lattices;
+      };
+    in
+    r.store == oracle.store;
+  restabFailing = builtins.filter (seed: !(restabSound seed)) (lib.range 1 120);
+
+  # --- Fixture A: acyclic-regression — restabilize == override (byte-identical) ---
+  # A hand-built acyclic chain a→b→c (c is the producer; a the top consumer).
+  # restabilize over an acyclic cone reduces to the v1 override splice, so its
+  # store must be byte-identical to override's. We build the restabilize ctx WITH
+  # an (all-singleton) fixpoint and the override ctx WITHOUT one, change `c`, and
+  # assert the two stores agree (and pin the expected store).
+  acyclicChain = graph.mkGraph {
+    edges = [
+      {
+        from = "a";
+        to = "b";
+      }
+      {
+        from = "b";
+        to = "c";
+      }
+    ];
+    nodeData = {
+      a = {
+        weight = 10;
+      };
+      b = {
+        weight = 20;
+      };
+      c = {
+        weight = 30;
+      };
+    };
+  };
+  acyclicIds = [
+    "a"
+    "b"
+    "c"
+  ];
+  # node value = own weight + sum of dep values (deps from accessor.edges).
+  chainRecompute =
+    a: s: id:
+    (a.nodeData id).weight + lib.foldl' (sum: dep: sum + s.${dep}) 0 (a.edges id);
+  chainHashOf = v: builtins.hashString "sha256" (builtins.toJSON v);
+  acyclicSingletonFixpoint = {
+    lattices = lib.genAttrs acyclicIds (_: {
+      bottom = 0;
+      join = _: v: v;
+      eq = (a: b: a == b);
+    });
+  };
+  # restabilize ctx: built WITH a fixpoint (acyclic ⇒ all singleton strata).
+  chainCtxFix = build {
+    accessor = acyclicChain;
+    recompute = chainRecompute;
+    hashOf = chainHashOf;
+    fixpoint = acyclicSingletonFixpoint;
+  };
+  # override ctx: the SAME acyclic graph built v1-style (no fixpoint key).
+  chainCtxV1 = build {
+    accessor = acyclicChain;
+    recompute = chainRecompute;
+    hashOf = chainHashOf;
+  };
+  chainChangedId = "c";
+  chainNewDecls = {
+    weight = 100;
+  };
+  chainRestab = restabilize chainCtxFix chainChangedId chainNewDecls;
+  chainOverride = override chainCtxV1 chainChangedId chainNewDecls;
+  # Pinned expected store after c := 100: c=100, b=20+100=120, a=10+120=130.
+  chainExpectedStore = {
+    c = 100;
+    b = 120;
+    a = 130;
+  };
+
+  # --- Fixture B: a built cyclic ctx, reused by the precheck/throw tests ---
+  # 2-SCC {x,y} reading an acyclic producer p; an acyclic consumer c reads y.
+  #   edges: x→y, y→x (the SCC); x→p (SCC reads producer); c→y (consumer reads SCC)
+  mixedAccessor = graph.mkGraph {
+    edges = [
+      {
+        from = "x";
+        to = "y";
+      }
+      {
+        from = "y";
+        to = "x";
+      }
+      {
+        from = "x";
+        to = "p";
+      }
+      {
+        from = "c";
+        to = "y";
+      }
+    ];
+    nodeData = {
+      p = {
+        weight = 5;
+      };
+      x = {
+        weight = 1;
+      };
+      y = {
+        weight = 1;
+      };
+      c = {
+        weight = 0;
+      };
+    };
+  };
+  mixedIds = [
+    "p"
+    "x"
+    "y"
+    "c"
+  ];
+  # MAX-fold (monotone + bounded ⇒ always converges).
+  mixedRecompute =
+    a: s: id:
+    lib.foldl' lib.max (a.nodeData id).weight (map (d: s.${d}) (a.edges id));
+  mixedHashOf = v: builtins.hashString "sha256" (builtins.toJSON v);
+  mixedFixpoint = {
+    lattices = lib.genAttrs mixedIds (_: {
+      bottom = 0;
+      join = _: v: v;
+      eq = (a: b: a == b);
+    });
+  };
+  mixedCtx = build {
+    accessor = mixedAccessor;
+    recompute = mixedRecompute;
+    hashOf = mixedHashOf;
+    fixpoint = mixedFixpoint;
+  };
+
+  # --- Fixture C (test 3): mutate the built cyclic ctx to DROP a cyclic node's
+  # lattice, triggering restabilize's OWN undeclared-cyclic-node precheck. (build
+  # would reject such a fixpoint up front, so we mutate post-build.) `x` is cyclic.
+  mixedCtxMissingLattice = mixedCtx // {
+    fixpoint = {
+      lattices = removeAttrs mixedCtx.fixpoint.lattices [ "x" ];
+    };
+  };
+
+  # --- Fixture D (test 4): a v1-built ctx (NO fixpoint key) over the acyclic
+  # chain ⇒ restabilize must throw "requires ctx.fixpoint". Reuses chainCtxV1.
+
+  # --- Fixture E (test 5): mixed-strata producer change. Change p; restabilize
+  # must re-solve the whole p-cone (SCC {x,y} + consumer c). Oracle = build acc'.
+  mixedChangedId = "p";
+  mixedNewDecls = {
+    weight = 50;
+  };
+  mixedAccessor' = mixedAccessor // {
+    nodeData = id: if id == mixedChangedId then mixedNewDecls else mixedAccessor.nodeData id;
+  };
+  mixedRestab = restabilize mixedCtx mixedChangedId mixedNewDecls;
+  mixedOracle = build {
+    accessor = mixedAccessor';
+    recompute = mixedRecompute;
+    hashOf = mixedHashOf;
+    fixpoint = mixedFixpoint;
+  };
+
+  # --- Fixture F (test 6): chaining. restabilize ∘ restabilize stays cyclic-
+  # capable (fixpoint threaded) and == oracle build over the twice-changed acc.
+  chainId1 = "p";
+  chainDecls1 = {
+    weight = 40;
+  };
+  chainId2 = "x";
+  chainDecls2 = {
+    weight = 70;
+  };
+  chainDouble = restabilize (restabilize mixedCtx chainId1 chainDecls1) chainId2 chainDecls2;
+  mixedAccessorDouble = mixedAccessor // {
+    nodeData =
+      id:
+      if id == chainId2 then
+        chainDecls2
+      else if id == chainId1 then
+        chainDecls1
+      else
+        mixedAccessor.nodeData id;
+  };
+  chainDoubleOracle = build {
+    accessor = mixedAccessorDouble;
+    recompute = mixedRecompute;
+    hashOf = mixedHashOf;
+    fixpoint = mixedFixpoint;
+  };
 in
 {
   flake.tests.restabilize = {
@@ -245,6 +472,63 @@ in
     test-per-member-p-settles = {
       expr = perMemberResult.p;
       expected = 7;
+    };
+
+    # === restabilize ========================================================
+
+    # 1. THE soundness gate: fixed-point-equality over 120 random cyclic graphs.
+    # restabilize's incremental cyclic solve == a from-scratch fixpoint build over
+    # the changed topology, for every seed (no failing seeds).
+    test-restab-sound-120 = {
+      expr = restabFailing;
+      expected = [ ];
+    };
+
+    # 2. acyclic-regression: when the cone touches NO SCC, restabilize reduces to
+    # the v1 override splice — byte-identical stores (and pinned).
+    test-restab-acyclic-eq-override = {
+      expr = chainRestab.store == chainOverride.store;
+      expected = true;
+    };
+    test-restab-acyclic-store-pinned = {
+      expr = chainRestab.store;
+      expected = chainExpectedStore;
+    };
+
+    # 3. missing-per-member-lattice: a built cyclic ctx with a cyclic node's
+    # lattice dropped ⇒ restabilize's own precheck throws a catchable blame.
+    test-restab-missing-lattice-throws = {
+      expr =
+        (builtins.tryEval (
+          builtins.deepSeq (restabilize mixedCtxMissingLattice mixedChangedId mixedNewDecls) true
+        )).success;
+      expected = false;
+    };
+
+    # 4. requires-fixpoint: restabilize on a v1-built ctx (no fixpoint key) throws.
+    test-restab-requires-fixpoint-throws = {
+      expr =
+        (builtins.tryEval (builtins.deepSeq (restabilize chainCtxV1 chainChangedId chainNewDecls) true))
+        .success;
+      expected = false;
+    };
+
+    # 5. mixed-strata bottom-up: change producer p; restabilize re-solves the full
+    # p-cone (SCC {x,y} + consumer c) == oracle build over the changed accessor.
+    test-restab-mixed-strata-eq-oracle = {
+      expr = mixedRestab.store == mixedOracle.store;
+      expected = true;
+    };
+
+    # 6. chaining: restabilize ∘ restabilize stays cyclic-capable (fixpoint
+    # threaded) and == oracle build over the twice-changed accessor.
+    test-restab-chaining-eq-oracle = {
+      expr = chainDouble.store == chainDoubleOracle.store;
+      expected = true;
+    };
+    test-restab-chaining-threads-fixpoint = {
+      expr = chainDouble ? fixpoint && chainDouble.fixpoint == mixedFixpoint;
+      expected = true;
     };
   };
 }
