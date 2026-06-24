@@ -4,7 +4,7 @@
 # (drain dirty-set to quiescence over the dependency cone). `override` is the
 # fused convenience: `override = propagate ∘ applyDelta`.
 #
-# Theory citations (per §5.P3.a, conformance audit):
+# Theory citations:
 #   - Acar 2002 §4.3 (change), §4.5 (propagate algorithm), §7 (correctness)
 #   - Forgy 1982 (token vocabulary: Acar's δ ⊕ σ is Forgy's `+` change token)
 #   - Hammer 2014 (Adapton force/demand; note: our force is full-drain, not
