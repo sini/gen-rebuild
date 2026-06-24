@@ -26,12 +26,13 @@ build-systems taxonomy, factored out of the *scheduler* (gen-scope) and the
 ## Overview
 
 gen-rebuild does **not** schedule or evaluate; it decides reuse and drives change
-propagation, composing two sibling libraries:
+propagation. v1 functionally composes **gen-graph** (the topology oracle);
+**gen-scope** is wired for the v2 warm-cache seam (S1), not used by v1:
 
 ```
 gen-graph   (topology oracle)   dependentsOf · cycles · transpose
    │  read-only queries over a caller-supplied edge accessor
-gen-scope   (scheduler)         demand-driven evaluation
+gen-scope   (scheduler)         demand-driven evaluation  ·  v2 seam (wired, unused in v1)
    │
 gen-rebuild (rebuilder)  ◄── THIS LIB
       owns: the flat relocatable result-store + trace, the reuse decision,
@@ -41,18 +42,20 @@ gen-rebuild (rebuilder)  ◄── THIS LIB
 It owns a flat, **relocatable** result-store (plain values, not thunks closed over
 a `lib.fix self`) — relocatability is what makes reuse-across-change possible. A
 change recomputes only the dependent **cone** via a reverse-topo splice
-(`priorStore // fix-of-cone`); everything else is reused byte-for-byte. v1 is the
-**dirty-bit, whole-cone, eager, intra-eval** core — sound and demonstrable.
+(`priorStore // fix-of-cone`); everything else is reused byte-for-byte. v1 runs its
+own thin store-backed `lib.fix` eval loop (gen-scope's evaluator is wired in at
+v2). It is the **dirty-bit, whole-cone, eager, intra-eval** core — sound and
+demonstrable.
 
 ## Terminology
 
 | Term | Definition | Source |
 | ---------- | -------------------------------------------------------------- | ------------------------------------- |
 | Rebuilder | decides reuse: "must K be recomputed, given last time?" | Mokhov 2018 |
-| Store | flat relocatable id-keyed result map `{ <id> = value; }` | Mokhov 2018 (deep-constructive trace) |
+| Store | flat relocatable id-keyed result map `{ <id> = value; }` | Mokhov 2018 (result store) |
 | Trace | per-key `{ deps; hash }` verifying record | Mokhov 2018 (verifying trace) |
-| Cone | dependent cone of `x` — everyone who transitively depends on x | Arntzenius 2016 (reverse reachability) |
-| Dirty set | changed ids ∪ their dependent cones (v1 over-approx) | Hammer 2014 (Adapton dirty/clean) |
+| Cone | dependent cone of `x` — everyone who transitively depends on x | gen-graph (reverse reachability) |
+| Dirty set | changed ids ∪ their dependent cones (v1 over-approx) | Reps–Teitelbaum–Demers 1983 (AFFECTED set) |
 | Splice | `priorStore // fix-of-cone` — recompute the cone, reuse rest | Acar 2002 (change propagation) |
 | BuiltCtx | the threaded `{ store, trace, accessor, recompute, hashOf }` | — |
 
@@ -152,8 +155,10 @@ build :: { accessor, recompute, hashOf } -> BuiltCtx
 ```
 
 Full evaluation into a flat store + verifying trace. Pre-checks acyclicity via
-`graph.cycles` and **throws a located blame** `{ why; cycle; path }` on a cycle
-(catchable by `builtins.tryEval`) rather than diverging inside the `lib.fix` loop.
+`graph.cycles` and **throws a catchable located-cycle blame** on a cycle — the
+`{ why; cycle; path }` record is constructed from `graph.cycles` and embedded in
+the thrown error, so `builtins.tryEval` catches it instead of diverging inside the
+`lib.fix` loop. (Surfacing the blame as a *returned, inspectable* value is later.)
 
 - `accessor` — a gen-graph accessor `{ edges, nodes, nodeData, parent }`.
 - `recompute :: accessor -> store -> id -> value` — the caller's node-eval.
@@ -211,8 +216,10 @@ plus fixed adversarial shapes. The guarantee is precisely scoped:
   set) is the v2 seam (`applyDelta` / `retract`), out of v1 scope.
 - **Hashable values.** Store byte-equality is over toJSON-able node values; a
   function-valued node is sound-by-always-dirty (`hash = null`), not by `==`.
-- **Located cycles, not divergence.** A cyclic accessor yields a catchable
-  `{ why; cycle; path }` blame, never Nix's uncatchable infinite recursion.
+- **Located cycles, not divergence.** A cyclic accessor yields a **catchable
+  throw** (the `{ why; cycle; path }` blame embedded in the error), never Nix's
+  uncatchable infinite recursion. Surfacing the blame as a returned, inspectable
+  value is a later goal.
 
 Deferred: v2 (rebuilder strategies, provenance, drivers, the generic seams), v3
 (intra-eval optimality — `O(|AFFECTED|)`, the Adapton sharing/swapping/switching
@@ -249,8 +256,8 @@ soundness property and the B demo's thesis assertions.
 | Paper | Relationship | Used for |
 |-------|-------------|----------|
 | Mokhov, Mitchell & Peyton Jones (2018) "Build Systems à la Carte" | **Implements** | The rebuilder dimension, factored from the scheduler (gen-scope) and topology oracle (gen-graph); v1 is the dirty-bit rebuilder over a verifying trace |
-| Hammer et al. (2014) "Adapton" | **Implements** | Demand-driven dirty/clean reuse; the pure-core / external-shell split — revalidation rides Nix laziness, and purity gives Adapton's read-only-inner memo soundness for free |
-| Arntzenius & Krishnaswami (2016) "Datafun" | Informed by | Reverse reachability — the dependent cone via `graph.dependentsOf` |
+| Hammer et al. (2014) "Adapton" | Informed by | The pure-core / external-shell *line* — the demand-driven amortization shell is deferred (out of v1 scope), and purity gives read-only-inner-memo soundness for free. v1 is an *eager dirty-bit* rebuilder, not Adapton's demand-driven dirty/clean |
+| Arntzenius & Krishnaswami (2016) "Datafun" | Informed by | The dependent cone is gen-graph's reverse reachability (a Datafun-derived query); Datafun's semi-naive incremental fixpoint enters at v2 (`restabilize`) |
 | Acar et al. (2002) "Adaptive Functional Programming" | Informed by | Change propagation + the reverse-topo splice; containment recovery for `O(\|AFFECTED\|)` is named as a v3 open problem |
 | Reps, Teitelbaum & Demers (1983) | Informed by | `O(\|AFFECTED\|)` optimality + characteristic graphs — the v3 go/no-go gate |
 | Radul & Sussman (2009) "Art of the Propagator" | Informed by | Provenance + retraction (v2 `support` / `why` / `retract`) |
