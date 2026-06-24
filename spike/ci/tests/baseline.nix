@@ -240,7 +240,7 @@ in
         {
           rxNum = r.rx.num; # max(3,7,5) = 7
           rxDen = r.rx.den; # 10
-          rtNum = r.rt.num; # 7 + 2 + 4 = 13
+          rtNum = r.rt.num; # 7 + 2 + 4 + 0(summaryForces) = 13
           rtDen = r.rt.den; # 10
         };
       expected = {
