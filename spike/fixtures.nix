@@ -473,7 +473,6 @@ let
       seed:
       let
         n = 4 + mod (rnd seed 0 0) 4; # 4..7
-        ids = map nameOf (lib.range 0 (n - 1));
         edgeList = chainEdges n;
         weights = lib.listToAttrs (
           map (i: lib.nameValuePair (nameOf i) { weight = 1 + mod (rnd seed i 99) 100; }) (
@@ -525,7 +524,6 @@ let
       let
         cap = 100;
         n = 18 + mod (rnd seed 1 1) 8; # 18..25
-        ids = map nameOf (lib.range 0 (n - 1));
         edgeList = chainEdges n;
         weights = lib.listToAttrs (
           map (i: lib.nameValuePair (nameOf i) { weight = 30 + mod (rnd seed i 5) 21; }) (lib.range 0 (n - 1))
@@ -553,7 +551,6 @@ let
       let
         cap = 100;
         n = 16 + mod (rnd seed 0 0) 8; # 16..23
-        ids = map nameOf (lib.range 0 (n - 1));
         edgeList = chainEdges n;
         weights = lib.listToAttrs (
           map (i: lib.nameValuePair (nameOf i) { weight = 40 + mod (rnd seed i 7) 31; }) (lib.range 0 (n - 1))
@@ -580,7 +577,6 @@ let
       seed:
       let
         n = 6 + mod (rnd seed 0 0) 4; # 6..9
-        ids = map nameOf (lib.range 0 (n - 1));
         edgeList = lib.concatMap (
           i:
           lib.concatMap (
