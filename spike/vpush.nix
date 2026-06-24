@@ -76,6 +76,8 @@ in
           let
             # §4(B) carry: read non-cone + unmoved-in-cone deps from priorStore.
             v = ctx.recompute accessor' (ctx.store // st.settled) id;
+            # Null-safe move test (unhashable ⇒ always-dirty, see lib/hash.nix): do NOT
+            # collapse to `hash != prior` — null == null is true ⇒ false-clean ⇒ unsound.
             moved = hashMoved (hashGuarded ctx.hashOf v) (ctx.trace.${id}.hash or null);
           in
           st
