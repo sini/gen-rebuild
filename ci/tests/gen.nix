@@ -8,6 +8,15 @@
 #   acc   — a random DAG (edges only point to lower indices ⇒ acyclic)
 #   acc'  — acc with changedId's nodeData replaced by newDecls
 # so the soundness test can compare override(build acc) against build acc'.
+#
+# SCOPE of what this property proves (matches override.nix's guarantee):
+#   - DATA-change only: acc' differs from acc solely in changedId's nodeData;
+#     edges are identical. So this proves data-change override == full rebuild,
+#     NOT topology-changing override (the v2 seam — edges are never varied here).
+#   - Node values are INTEGERS (hashable / toJSON-able), so store byte-equality is
+#     well-defined; function-valued nodes are out of this property's reach (they
+#     are sound-by-always-dirty, not by store ==). The fixed adversarial fixtures
+#     in override.nix complement these random DAGs with hand-built shapes.
 { lib, graph, ... }:
 let
   # glibc LCG. 64-bit safe: lcg always returns < 2^31, and the salts i,j added are

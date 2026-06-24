@@ -1,6 +1,9 @@
 {
   lib,
   graph,
+  # `scope` (gen-scope) is threaded but unused in v1 — reserved for the v2 S1
+  # warm-cache eval seam, when `recompute` is wired to gen-scope's evaluator
+  # instead of v1's own thin store-backed lib.fix loop.
   scope,
 }:
 let

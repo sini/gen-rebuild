@@ -6,7 +6,7 @@
   ...
 }:
 let
-  inherit (genRebuild) build override;
+  inherit (genRebuild) build override dirtySet;
 
   # --- soundness property: override == from-scratch rebuild, over many seeds ---
   seeds = lib.range 1 120;
@@ -113,6 +113,109 @@ let
     hashOf = pinHashOf;
   };
   ovFan = override fanCtx "c" { weight = 100; };
+
+  # --- fixed adversarial shapes (complement the 120 random DAGs) ---
+  # soundOn: does a data-change override of `changedId` match a full rebuild?
+  soundOn =
+    accessor: changedId: newDecls:
+    let
+      c = build {
+        inherit accessor;
+        recompute = pinRecompute;
+        hashOf = pinHashOf;
+      };
+      ov = override c changedId newDecls;
+      acc' = accessor // {
+        nodeData = id: if id == changedId then newDecls else accessor.nodeData id;
+      };
+      oracle = build {
+        accessor = acc';
+        recompute = pinRecompute;
+        hashOf = pinHashOf;
+      };
+    in
+    ov.store == oracle.store;
+
+  # wide diamond: top fans out to m1..m4, all fan in to a shared base.
+  wideDiamond = graph.mkGraph {
+    edges =
+      builtins.concatMap
+        (m: [
+          {
+            from = "top";
+            to = m;
+          }
+          {
+            from = m;
+            to = "base";
+          }
+        ])
+        [
+          "m1"
+          "m2"
+          "m3"
+          "m4"
+        ];
+    nodeData = {
+      top = {
+        weight = 1;
+      };
+      m1 = {
+        weight = 2;
+      };
+      m2 = {
+        weight = 3;
+      };
+      m3 = {
+        weight = 4;
+      };
+      m4 = {
+        weight = 5;
+      };
+      base = {
+        weight = 10;
+      };
+    };
+  };
+  wideDiamondCtx = build {
+    accessor = wideDiamond;
+    recompute = pinRecompute;
+    hashOf = pinHashOf;
+  };
+
+  # deep chain n0 -> n1 -> ... -> n5 (n0 depends on n1 … n4 depends on n5).
+  deepChain = graph.mkGraph {
+    edges =
+      map
+        (i: {
+          from = "n${toString i}";
+          to = "n${toString (i + 1)}";
+        })
+        [
+          0
+          1
+          2
+          3
+          4
+        ];
+    nodeData = builtins.listToAttrs (
+      map
+        (i: {
+          name = "n${toString i}";
+          value = {
+            weight = i + 1;
+          };
+        })
+        [
+          0
+          1
+          2
+          3
+          4
+          5
+        ]
+    );
+  };
 in
 {
   flake.tests.override = {
@@ -184,6 +287,47 @@ in
     test-chained-c = {
       expr = ovCC.store.c;
       expected = 300;
+    };
+
+    # ===== fixed adversarial shapes — sound for root / middle / leaf changes =====
+    # wide diamond: leaf (whole cone), middle (small cone), root (cone = {root}).
+    test-sound-wide-diamond-leaf = {
+      expr = soundOn wideDiamond "base" { weight = 99; };
+      expected = true;
+    };
+    test-sound-wide-diamond-middle = {
+      expr = soundOn wideDiamond "m2" { weight = 99; };
+      expected = true;
+    };
+    test-sound-wide-diamond-root = {
+      expr = soundOn wideDiamond "top" { weight = 99; };
+      expected = true;
+    };
+    # deep chain: leaf (all ancestors), middle, root (cone = {root}).
+    test-sound-deep-chain-leaf = {
+      expr = soundOn deepChain "n5" { weight = 99; };
+      expected = true;
+    };
+    test-sound-deep-chain-middle = {
+      expr = soundOn deepChain "n3" { weight = 99; };
+      expected = true;
+    };
+    test-sound-deep-chain-root = {
+      expr = soundOn deepChain "n0" { weight = 99; };
+      expected = true;
+    };
+    # cone-shape sanity: the fixtures are NOT trivially all-cone — a middle change
+    # touches a strict subset, proving the splice genuinely reuses non-cone nodes.
+    test-cone-wide-diamond-middle = {
+      expr = builtins.sort builtins.lessThan (dirtySet wideDiamondCtx [ "m2" ]);
+      expected = [
+        "m2"
+        "top"
+      ];
+    };
+    test-cone-wide-diamond-root = {
+      expr = dirtySet wideDiamondCtx [ "top" ];
+      expected = [ "top" ];
     };
   };
 }

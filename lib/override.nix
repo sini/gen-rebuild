@@ -6,9 +6,24 @@
 # build of the same accessor. Returns an updated BuiltCtx so overrides chain
 # soundly (the new trace/hashes are threaded).
 #
-# v1 changes node *data*, not topology: edges are unchanged, so the cone computed
-# over the OLD accessor is exactly the affected set, and acyclicity is preserved
-# (no override-time cycle risk).
+# SOUNDNESS — scope of the guarantee (read precisely; the property test proves
+# exactly this and no more):
+#   - It is a *data-change* override. `newDecls` replaces only changedId's
+#     nodeData; EDGES ARE FIXED. So the cone computed over the OLD accessor is
+#     exactly the affected set in the NEW accessor (only changedId's value moved,
+#     not who-depends-on-whom), and acyclicity is preserved — no override-time
+#     cycle risk. Soundness here = "data-change override == full rebuild", NOT
+#     unconditional soundness.
+#   - TOPOLOGY-CHANGING override (changing a node's edges/dep set, e.g. a host's
+#     module set) is OUT OF v1 SCOPE — it's the v2 seam (applyDelta / retract with
+#     structural deltas). There is no edge-handling code here to be wrong; the
+#     property test cannot catch an edge-handling bug because there is none. v1
+#     consumers that change topology must rebuild.
+#   - Store byte-equality is over *hashable* node values (the toJSON-able values
+#     the trace can hash). A node whose stored value carries a function is
+#     sound-by-always-dirty for the dirty DECISION (hash = null, see hash.nix),
+#     not by store `==` — two function thunks from distinct builds never compare
+#     equal. The 120-seed property exercises integer-valued nodes.
 #
 # The splice (authoritative form — spec §4's bare-`s` sketch is a bug):
 #   builtStore = ctx.store // fix (s: genAttrs cone (id: recompute accessor' (ctx.store // s) id))

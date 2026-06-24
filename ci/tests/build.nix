@@ -45,16 +45,28 @@ let
 
   ctx = build { inherit accessor recompute hashOf; };
 
-  # A node whose result carries a function: hashOf is partial (not toJSON-able),
-  # so the trace hash must be null (always-dirty), not an eval error.
+  # Nodes whose result carries a function: hashOf is partial (not toJSON-able), so
+  # the trace hash must be null (always-dirty), not an eval error. `f` has the
+  # function at depth 1; `g` buries it in attrs + lists, to exercise the full
+  # recursive walk of the hash guard (lib/hash.nix).
   lambdaAccessor = graph.mkGraph {
     nodeData = {
       f = { };
+      g = { };
     };
   };
   lambdaCtx = build {
     accessor = lambdaAccessor;
-    recompute = _acc: _s: _id: { fn = x: x + 1; };
+    recompute =
+      _acc: _s: id:
+      if id == "f" then
+        { fn = x: x + 1; }
+      else
+        {
+          wrap = {
+            deep = [ { fn = y: y * 2; } ];
+          };
+        };
     inherit hashOf;
   };
 
@@ -120,6 +132,11 @@ in
     # --- hashOf partial on function-bearing values -> hash = null ---
     test-trace-hash-null-on-function = {
       expr = lambdaCtx.trace.f.hash;
+      expected = null;
+    };
+    # function buried in attrs + lists is still detected (recursive walk).
+    test-trace-hash-null-on-nested-function = {
+      expr = lambdaCtx.trace.g.hash;
       expected = null;
     };
 
