@@ -20,6 +20,7 @@ let
     ./override.nix
     ./strategies.nix
     ./affectedSet.nix
+    ./provenance.nix
   ];
 in
 lib.foldl' (acc: m: acc // import m args) { } modules
