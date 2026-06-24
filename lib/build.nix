@@ -1,5 +1,10 @@
 # build — full evaluation into a flat relocatable store + a verifying trace.
 #
+# Mokhov 2018: §3.1 Store (flat relocatable id-keyed map; call-by-need
+# dependency-order resolution via `lib.fix`) + §4.2.2 verifying trace (per-key
+# `{ deps; hash }`) + §2.1/§4.1 acyclicity (cyclic deps not allowed ⇒ each task
+# executed at most once).
+#
 # Consumes a gen-graph accessor (the topology oracle) and a caller-supplied
 # `recompute` (the node-eval, `accessor -> store -> id -> value`). Pre-checks
 # acyclicity via graph.cycles and throws a *located* blame on a cycle — catchable
@@ -19,9 +24,11 @@ let
       hashOf,
     }:
     let
-      # Acyclicity precondition. graph.cycles returns the sorted cyclic id-list
-      # (gen-graph/lib/global.nix); gen-rebuild constructs the located blame from
-      # it (gen-graph supplies the ids; the blame record is ours).
+      # Acyclicity precondition (Mokhov 2018 §2.1/§4.1: cyclic deps not allowed ⇒
+      # each task executed at most once). graph.cycles returns the sorted cyclic
+      # id-list (gen-graph/lib/global.nix); gen-rebuild constructs the located blame
+      # from it — a tryEval-catchable thrown blame, vs Nix's uncatchable infinite
+      # recursion (gen-graph supplies the ids; the blame record is ours).
       cyclic = graph.cycles accessor;
       blame =
         let
@@ -34,8 +41,9 @@ let
           path = graph.pathsBetween accessor a b;
         };
 
-      # Flat relocatable store: lib.fix resolves deps in dependency order via
-      # call-by-need; terminates because the precheck guarantees acyclicity.
+      # Flat relocatable store (Mokhov 2018 §3.1): lib.fix resolves deps in
+      # dependency order via call-by-need; terminates because the precheck
+      # guarantees acyclicity.
       store = lib.fix (s: lib.genAttrs accessor.nodes (id: recompute accessor s id));
 
       # Verifying trace (Mokhov shape): per-key dep list + content hash

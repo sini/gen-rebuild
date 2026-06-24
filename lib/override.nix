@@ -25,11 +25,14 @@
 #     not by store `==` — two function thunks from distinct builds never compare
 #     equal. The 120-seed property exercises integer-valued nodes.
 #
-# The splice (authoritative form — spec §4's bare-`s` sketch is a bug):
-#   builtStore = ctx.store // fix (s: genAttrs cone (id: recompute accessor' (ctx.store // s) id))
-# recompute receives `ctx.store // s`: a cone-internal dep reads the fresh value
-# from `s`; a reused (non-cone) dep falls through to ctx.store. Passing bare `s`
-# would miss non-cone deps of a recomputed node — unsound.
+# The splice:
+#   builtStore = ctx.store // lib.fix (s: genAttrs cone (id: recompute accessor' (ctx.store // s) id))
+# realizes Acar 2002 change propagation (§4.5 algorithm; §7 correctness — change
+# propagation "yields essentially the same result as a complete re-execution on the
+# changed inputs"). A cone-internal dep reads its FRESH value from `s` (Acar `l∈C`
+# ⇒ re-evaluate); a non-cone dep falls through to `ctx.store` (`l∉C` ⇒ reuse). Bare
+# `s` would miss non-cone deps of a recomputed node — unsound. This gives the §7
+# property that the override-store is byte-identical to a from-scratch build.
 { lib, graph, ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded;

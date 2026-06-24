@@ -1,3 +1,6 @@
+# gen-rebuild = the rebuilder dimension (Mokhov 2018) over change propagation
+# (Acar 2002) + the AFFECTED set (Reps–Teitelbaum–Demers 1983) + reverse-
+# reachability (Arntzenius 2016 Datafun).
 {
   lib,
   graph,
