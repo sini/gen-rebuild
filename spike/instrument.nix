@@ -21,15 +21,15 @@
 #   - ratios : the two head-to-head axes as EXACT rationals (no floats — Nix has
 #     no rationals either, so a ratio is a {num;den} pair compared cross-wise):
 #       rx = expensive-axis  / cone   (recompute/hash/alloc — the max of the three)
-#       rt = total-forces    / cone   (rx.num + precompute + driveSweep +
-#                                       summaryForces — EVERY non-expensive force,
-#                                       including the summary-dedup re-reads)
+#       rt = total-forces    / cone   (rx.num + precompute + driveSweep — the §8
+#                                       ordering bookkeeping; the honest per-eval cost)
 #     den = cone for both. The baseline is rx = rt = 1/1 by construction (it does
-#     cone-many forces, no precompute/sweep/summary); the cheaper variants must
-#     drive rx (and ideally rt) strictly below 1. rt counting summaryForces is what
-#     surfaces V-summary's O(|cone|²) NO-GO on the COST axis — its region-member
-#     re-reads are real forces, so an honest total must count them (baseline/V-push
-#     have summaryForces = 0 ⇒ their rt is unchanged).
+#     cone-many forces, no precompute/sweep); the cheaper variants must drive rx
+#     (and ideally rt) strictly below 1. NOTE: summaryForces is NOT folded into rt —
+#     the spec (§5/§8) measures V-summary's O(|cone|²) re-reads on its OWN dedicated
+#     `summaryForces` axis, and V-summary's NO-GO trigger is `summaryForces > cone`
+#     directly (distinct from V-push's total-axis NO-GO which uses rt). summaryForces
+#     stays a first-class counter for that adjudication.
 #
 #   - rle a b : exact-rational a ≤ b via cross-multiplication (a.num*b.den ≤
 #     b.num*a.den). Dens are |cone| ≥ 0; for the spike's small graphs the
@@ -73,7 +73,7 @@
         den = m.cone;
       };
       rt = {
-        num = tx + m.precompute + m.driveSweep + m.summaryForces;
+        num = tx + m.precompute + m.driveSweep;
         den = m.cone;
       };
     };

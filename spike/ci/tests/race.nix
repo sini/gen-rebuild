@@ -12,10 +12,12 @@
 #     construction — the O(|cone|) reference).
 #   - V-PUSH: rx < 1 (STRICT) on the cut-heavy fixtures (deep-cut, sparse-affected)
 #     — the per-node early cutoff drives the expensive axis sub-cone. THE go signal.
-#   - V-SUMMARY: SOUND (byte-identical) but rt > 1 on chains — the O(|cone|²)
-#     summaryForces (region-member re-reads) inflate TOTAL forces above the cone,
-#     and there is no per-node cutoff below the region boundary. A NO-GO on COST,
-#     never on soundness.
+#   - V-SUMMARY: SOUND (byte-identical) but `summaryForces > cone` on full-propagation
+#     shapes — the O(|cone|²) region-member re-reads have no amortization and no
+#     per-node cutoff below the region boundary. Per spec §5/§8 this is its OWN
+#     dedicated axis (NOT folded into r_t, which stays expensive+precompute+sweep);
+#     V-summary's NO-GO trigger is `|summary-forces| > |cone|` directly. A NO-GO on
+#     COST, never on soundness.
 #
 # THE GATE (§7): all three variants are SOUND. allByteIdentical must be true across
 # every cell — V-summary included. V-summary's NO-GO is its r_t cost, not a gate
@@ -191,20 +193,25 @@ in
       expected = true;
     };
 
-    # ===== V-SUMMARY NO-GO (cost): rt > 1 on a chain, but still SOUND =========
-    # The O(|cone|²) summaryForces inflate TOTAL forces above the cone ⇒ rt.num >
-    # rt.den. (The chain pin fully propagates ⇒ Σ region sizes 1+2+3 = 6 > cone 3.)
-    test-vsummary-superlinear-chain = {
+    # ===== V-SUMMARY NO-GO (cost): summaryForces > cone, but still SOUND =======
+    # The spec §8 V-summary NO-GO trigger is its DEDICATED axis: `|summary-forces|`
+    # exceeds `|cone|` (the O(|cone|²) region-member re-reads have no amortization).
+    # This is a SEPARATE quantity from r_t (which stays spec-conformant: expensive +
+    # precompute + drive-sweep, summaryForces NOT folded in). Assert it on an n≥6
+    # chain (chain@2: Σ region sizes 1+…+6 = 21 > cone 6) and on the deep-cut pin
+    # (Σ 1+…+21 = 231 > cone 21) — both fully-propagating shapes where the cost bites.
+    test-vsummary-summaryforces-superlinear = {
       expr =
         let
-          r = (rowFor "vsummary" "chain").rt;
+          chainRow = rowFor "vsummary" "chain@2"; # n≥6 chain
+          deepRow = rowFor "vsummary" "deep-cut"; # full-propagation pin
         in
-        r.num > r.den;
+        chainRow.summaryForces > chainRow.cone && deepRow.summaryForces > deepRow.cone;
       expected = true;
     };
-    # …and the same chain cell IS byte-identical: the NO-GO is cost, not soundness.
+    # …and those same cells ARE byte-identical: the NO-GO is cost, not soundness.
     test-vsummary-chain-sound = {
-      expr = (rowFor "vsummary" "chain").byteIdentical;
+      expr = (rowFor "vsummary" "chain@2").byteIdentical && (rowFor "vsummary" "deep-cut").byteIdentical;
       expected = true;
     };
 
