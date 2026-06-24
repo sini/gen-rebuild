@@ -1,4 +1,4 @@
-# Tests for the provenance read layer — support / why / whyNot (§5.P2.c).
+# Tests for the provenance read layer — support / why / whyNot.
 #
 # support = transitive declared producers (Acar 2002 adg read backward / in-edge
 # direction; Radul 2009 §6.1 NAME-only). why = the recomputed/cutoff/unaffected

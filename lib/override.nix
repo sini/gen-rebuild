@@ -75,8 +75,8 @@ in
             id:
             let
               spliced = ctx.store // s;
-              # mustEval IS strategies.needsEval (the §5.P2.a closure) — the single
-              # source of the predicate, never an inlined parallel expression.
+              # mustEval IS strategies.needsEval (RTD 1983 §5.3 NeedToBeEvaluated) —
+              # the single source of the predicate, never an inlined parallel expression.
               mustEval = needsEval {
                 inherit (ctx) trace;
                 inherit coneSet newHashOf accessor';
