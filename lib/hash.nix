@@ -23,4 +23,11 @@ let
 in
 {
   hashGuarded = hashOf: value: if containsFunction value then null else hashOf value;
+
+  # Null-safe hash comparison. A null hash means "unhashable / always-dirty"
+  # (lib/hash.nix containsFunction). Nix `null == null` is TRUE, so a naive
+  # `nh != oh` with both null would read as unchanged ⇒ false-clean ⇒ unsound.
+  # Route ALL hash comparisons through these so the guard cannot diverge.
+  hashEq = nh: oh: nh != null && oh != null && nh == oh;
+  hashMoved = nh: oh: nh == null || oh == null || nh != oh;
 }
