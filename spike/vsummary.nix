@@ -97,10 +97,11 @@ in
         in
         st
         // {
-          # multiplicity: every region forces all its members (prior + current
-          # each walk the region, so 2·|region| hash reads — count the region per
-          # head, the O(|cone|²) shape is the same either way; use |region| so the
-          # super-linear Σ is exactly |cone|(|cone|+1)/2 on a chain).
+          # multiplicity (NOT a deduped set — see header): every region forces all
+          # its members. Count |region| per head; the prior+current summaries both
+          # walk the region (a constant 2× that doesn't change the O(|cone|²) shape),
+          # so counting |region| keeps the super-linear Σ exactly |cone|(|cone|+1)/2
+          # on a chain.
           summaryForces = st.summaryForces + builtins.length members;
           # Reuse fires only on a region whose summary matched (NOT cut-heavy);
           # otherwise every member recomputes (region-boundary cut only).
