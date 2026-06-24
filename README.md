@@ -1,5 +1,7 @@
 # gen-rebuild — pure-Nix incremental rebuilder
 
+[![CI](https://github.com/sini/gen-rebuild/actions/workflows/ci.yml/badge.svg)](https://github.com/sini/gen-rebuild/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/sini)
+
 gen-rebuild answers one question — **"given the last evaluation, must key K be
 recomputed?"** — and performs the minimal recompute + reuse. It is the *rebuilder*
 dimension of [Mokhov 2018](https://www.microsoft.com/en-us/research/publication/build-systems-la-carte/)'s
