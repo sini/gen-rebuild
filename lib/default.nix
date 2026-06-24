@@ -25,6 +25,7 @@ let
     ./provenance.nix
     ./drivers.nix
     ./structural.nix
+    ./restabilize.nix
   ];
 in
 lib.foldl' (acc: m: acc // import m args) { } modules
