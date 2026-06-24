@@ -1,9 +1,11 @@
 # hash — internal content-hash guarding, shared by build + override.
 #
-# A function-bearing value is not toJSON-able, and the toJSON error is
-# *uncatchable* by builtins.tryEval — so we detect the partiality structurally:
-# such values get hash = null and are treated as always-dirty (spec §6 Phase-2b
-# decision 1, clause (c)). Hashable values hash as normal.
+# Mokhov 2018 assumes a TOTAL `hash :: Hashable v => v -> Hash v` (§3.1) feeding
+# the verifying trace (§4.2.2). Nix `hashOf` is PARTIAL on function-bearing values
+# (not toJSON-able; the error is uncatchable by tryEval) — no Hashable instance.
+# Modelled structurally: such values get `hash = null` and are conservatively
+# always-dirty (never false-clean). The null rule itself has NO paper — it is an
+# operational Nix fact, not a theorem.
 #
 # Not part of the public surface — imported directly, not via lib/default.nix.
 { ... }:

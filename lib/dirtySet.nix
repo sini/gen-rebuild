@@ -1,5 +1,10 @@
 # dirtySet — the set of ids a multi-id change forces to recompute.
 #
+# Reps–Teitelbaum–Demers 1983 §4.3 AFFECTED set (an over-approximation; AFFECTED
+# is determined by the updating process, not a priori). The cone is Arntzenius 2016
+# Datafun reverse-reachability (`graph.dependentsOf`). v1 omits the hash-cutoff that
+# prunes unchanged-hash nodes.
+#
 # Deduped union of the changed ids and their dependent cones. v1 is an
 # over-approximation: every node in a changed id's cone is considered dirty
 # (the hash-cutoff that prunes unchanged-hash nodes is the v2 `earlyCutoff`).
