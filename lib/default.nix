@@ -9,6 +9,7 @@ let
   # The surface grows here as tasks land (build, affected, dirtySet, override).
   modules = [
     ./build.nix
+    ./affected.nix
   ];
 in
 lib.foldl' (acc: m: acc // import m args) { } modules
