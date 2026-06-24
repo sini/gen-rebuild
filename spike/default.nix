@@ -9,6 +9,18 @@ let
   topo = import ./topo.nix { inherit lib graph; };
   revadj = import ./revadj.nix { inherit lib graph; };
   instrument = import ./instrument.nix { inherit lib graph genRebuild; };
+  # vpush exposes the FUNCTION `ctx: changes: { store; settled; metrics; }`.
+  vpush =
+    (import ./vpush.nix {
+      inherit
+        lib
+        graph
+        genRebuild
+        topo
+        revadj
+        instrument
+        ;
+    }).vpush;
   # baseline exposes the FUNCTION `ctx: changes: { store; metrics; }`.
   baseline =
     (import ./baseline.nix {
@@ -26,6 +38,7 @@ in
     topo
     revadj
     instrument
+    vpush
     baseline
     ;
 }
