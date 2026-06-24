@@ -5,7 +5,7 @@
   ...
 }:
 let
-  inherit (genRebuild) build;
+  inherit (genRebuild) build override;
 
   # a depends on b depends on c (edges a=["b"], b=["c"], c=[]) — consumer→producer.
   accessor = graph.mkGraph {
@@ -67,6 +67,55 @@ let
             deep = [ { fn = y: y * 2; } ];
           };
         };
+    inherit hashOf;
+  };
+
+  # --- override THROUGH a function-bearing node (hash = null ⇒ always-dirty) ---
+  # `fnode`'s value carries a function ⇒ trace hash = null. `consumer` depends on
+  # fnode but derives an INTEGER from fnode's hashable `tag` field (function thunks
+  # never compare ==, so soundness is asserted on the hashable projection). The
+  # null-hash dep means `consumer` is ALWAYS-DIRTY in the cone — the only path that
+  # exercises the null-hash guard inside override's needsEval gate. Overriding fnode
+  # must stay sound (the consumer is recomputed, never false-clean reused).
+  fnAccessor = graph.mkGraph {
+    edges = [
+      {
+        from = "consumer";
+        to = "fnode";
+      }
+    ];
+    nodeData = {
+      fnode = {
+        tag = 1;
+      };
+      consumer = { };
+    };
+  };
+  fnRecompute =
+    acc: s: id:
+    if id == "fnode" then
+      {
+        # value carries a function ⇒ hash = null (always-dirty).
+        fn = x: x + (acc.nodeData "fnode").tag;
+        tag = (acc.nodeData "fnode").tag;
+      }
+    else
+      # consumer reads the hashable `tag` of its function-bearing dep.
+      100 + s.fnode.tag;
+  fnCtx = build {
+    accessor = fnAccessor;
+    recompute = fnRecompute;
+    inherit hashOf;
+  };
+  # override fnode's tag := 5. cone = {fnode, consumer}; both recomputed.
+  fnOverridden = override fnCtx "fnode" { tag = 5; };
+  # ground truth: a full rebuild with fnode's tag replaced.
+  fnAcc' = fnAccessor // {
+    nodeData = id: if id == "fnode" then { tag = 5; } else fnAccessor.nodeData id;
+  };
+  fnOracle = build {
+    accessor = fnAcc';
+    recompute = fnRecompute;
     inherit hashOf;
   };
 
@@ -148,6 +197,24 @@ in
           inherit recompute hashOf;
         })).success;
       expected = false;
+    };
+
+    # --- override THROUGH a function-bearing node stays sound (null-hash guard) ---
+    # consumer (always-dirty via its null-hash dep) is recomputed; its hashable
+    # projection matches a from-scratch rebuild.
+    test-override-through-fnode-consumer = {
+      expr = fnOverridden.store.consumer == fnOracle.store.consumer;
+      expected = true;
+    };
+    # the consumer's recomputed value reflects the override (100 + 5 = 105).
+    test-override-through-fnode-value = {
+      expr = fnOverridden.store.consumer;
+      expected = 105;
+    };
+    # the function-bearing node's trace hash stays null after override (always-dirty).
+    test-override-fnode-hash-null = {
+      expr = fnOverridden.trace.fnode.hash;
+      expected = null;
     };
   };
 }

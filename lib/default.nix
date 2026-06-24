@@ -19,6 +19,7 @@ let
     ./dirtySet.nix
     ./override.nix
     ./strategies.nix
+    ./affectedSet.nix
   ];
 in
 lib.foldl' (acc: m: acc // import m args) { } modules
