@@ -11,6 +11,7 @@ let
     ./build.nix
     ./affected.nix
     ./dirtySet.nix
+    ./override.nix
   ];
 in
 lib.foldl' (acc: m: acc // import m args) { } modules
