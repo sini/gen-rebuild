@@ -4,9 +4,11 @@
 {
   lib,
   graph,
-  # `scope` (gen-scope) is threaded but unused in v1 — reserved for the v2 S1
-  # warm-cache eval seam, when `recompute` is wired to gen-scope's evaluator
-  # instead of v1's own thin store-backed lib.fix loop.
+  # `scope` (gen-scope) is threaded for call-compatibility but UNUSED — no lib op
+  # consumes it. The sketched warm-cache adapter (gen-scope `evalWarm`) was found
+  # unsound (it resolved deps via its own fixpoint, not the relocatable store) and
+  # never wired; cross-eval/cross-host reuse uses frozen-snapshot value-passing on
+  # the deferred substrate (gen-specs/gen-rebuild/FUTURE_WORK.md), not a warm cache.
   scope,
 }:
 let

@@ -12,10 +12,14 @@
 #
 # Honest gaps (load-bearing; stated in code):
 #   - (G1) FORCE NOT SELECTIVE: full cone/frontier drain vs Adapton's demand-
-#     ordered per-edge cutoff (needs mutable dirty flags + order, S6).
-#   - (G2) FLAT REVERSE-CONE FRONTIER: narrows materialization toward AFFECTED,
-#     but O(|cone|) worst-case, not O(|AFFECTED|) — needs S7 characteristic-
-#     graph cutoff edges (v3).
+#     ordered per-edge cutoff (needs mutable dirty flags + order — the dropped S6;
+#     impure, and the v3 minimality spike confirmed it is unreachable in pure eval).
+#   - (G2) FLAT REVERSE-CONE FRONTIER: O(|cone|) worst-case here. The cut-heavy
+#     expensive-axis win (construct only O(|AFFECTED|+frontier) on localized edits)
+#     SHIPPED as `propagateEager` (lib/eager.nix). True total-work O(|AFFECTED|) (RTD
+#     S7 characteristic-graph cutoff edges) is NOT reachable in pure single-eval (v3
+#     spike verdict: PARTIAL) — it needs the deferred cross-eval substrate
+#     (gen-specs/gen-rebuild/FUTURE_WORK.md), not a pure v3 component.
 #   - (G3) FUSED-LAW specialized to no-fresh-ids (stable contract ids) —
 #     data-change only, edges fixed.
 #

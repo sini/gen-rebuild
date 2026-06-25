@@ -28,15 +28,17 @@ build-systems taxonomy, factored out of the *scheduler* (gen-scope) and the
 
 gen-rebuild does **not** schedule or evaluate; it decides reuse and drives change
 propagation. It functionally composes **gen-graph** (the topology oracle) for every
-structural query, and **gen-scope** is now consumed for the cyclic
-convergence-loop — `runScc` ascends each strongly-connected component to its least
-fixed point, and `restabilize` re-solves a change's cone stratum-by-stratum over
-the condensation:
+structural query — including the cyclic convergence-loop: `runScc` ascends each
+strongly-connected component to its least fixed point and `restabilize` re-solves a
+change's cone stratum-by-stratum over `graph.condensation`, both driven by the
+caller-supplied `recompute`. **gen-scope** is the ecosystem's scheduler layer but is
+**not currently consumed** by gen-rebuild (the `scope` arg is threaded but unused —
+see `lib/default.nix`):
 
 ```
 gen-graph   (topology oracle)   dependentsOf · cycles · condensation · canReach
    │  read-only queries over a caller-supplied edge accessor
-gen-scope   (scheduler)         demand-driven evaluation  ·  cyclic convergence seam
+gen-scope   (scheduler)         demand-driven evaluation — NOT consumed (threaded, unused)
    │
 gen-rebuild (rebuilder)  ◄── THIS LIB
       owns: the flat relocatable result-store + verifying trace, the reuse
@@ -403,10 +405,13 @@ Three caveats:
   **outside RTD's acyclic envelope** — no `O(|AFFECTED|)` optimality, no
   never-assign-a-non-final-value invariant.
 
-Deferred: v3 (intra-eval optimality — true `O(|AFFECTED|)` via characteristic-graph
-cutoff edges, containment-pruned propagation, the Adapton selective per-edge
-repair). The impure cross-eval shell is out of scope (a stateful substrate, not a
-deferred component).
+Deferred: the cut-heavy expensive-axis fast path SHIPPED as `propagateEager` (opt-in
+V-push). True total-work `O(|AFFECTED|)` (RTD characteristic-graph cutoff edges,
+containment-pruned propagation, the Adapton selective per-edge repair) is **not** a
+pure intra-eval optimization — the v3 minimality spike proved it unreachable in a
+single pure eval (verdict PARTIAL). It needs the impure cross-eval substrate (a
+stateful shell, not a deferred component) — see
+`gen-specs/gen-rebuild/FUTURE_WORK.md`.
 
 ### Cut-heavy fast path
 
@@ -471,8 +476,8 @@ and the cyclic/structural generators.
 | Paper | Relationship | Used for |
 |-------|-------------|----------|
 | Mokhov, Mitchell & Peyton Jones (2018) "Build Systems à la Carte" | **Implements** | The rebuilder dimension, factored from the scheduler (gen-scope) and topology oracle (gen-graph); the dirty-bit rebuilder over the flat store (§3.1) + verifying trace (§4.2.2), `verify` (§4.2), acyclicity precheck (§2.1/§4.1) |
-| Reps, Teitelbaum & Demers (1983) | Informed by | The AFFECTED set (§4.3, `affectedSet`/the post-filter), the unchanged-value cutoff (§4.1, `earlyCutoff`), NeedToBeEvaluated (§5.3, `needsEval`); true `O(\|AFFECTED\|)` optimality + characteristic graphs remain the v3 go/no-go gate |
-| Acar et al. (2002) "Adaptive Functional Programming" | Informed by | The change/propagate split (§4.3 `applyDelta`, §4.5 `propagate`), the reverse-topo splice (§7 correctness), the adg read backward for `support` (§4.4); containment recovery for `O(\|AFFECTED\|)` is a named v3 open problem |
+| Reps, Teitelbaum & Demers (1983) | Informed by | The AFFECTED set (§4.3, `affectedSet`/the post-filter), the unchanged-value cutoff (§4.1, `earlyCutoff`), NeedToBeEvaluated (§5.3, `needsEval`); true `O(\|AFFECTED\|)` optimality + characteristic graphs were the v3 go/no-go gate — spike verdict: unreachable in a pure eval, needs the cross-eval substrate (FUTURE_WORK.md) |
+| Acar et al. (2002) "Adaptive Functional Programming" | Informed by | The change/propagate split (§4.3 `applyDelta`, §4.5 `propagate`), the reverse-topo splice (§7 correctness), the adg read backward for `support` (§4.4); containment recovery for `O(\|AFFECTED\|)` was the v3 open problem — closed for pure eval by the spike (needs the cross-eval substrate) |
 | Forgy (1982) "RETE" | Informed by | The ± change-token vocabulary: `applyDelta`/`batch` are the `+` token, `applyEdgeDelta` is `modify = delete + add` |
 | Hammer et al. (2014) "Adapton" | Informed by | The demand/force interface (`force`/`forceCtx`). Note: our force is **full-drain**, not Adapton's selective per-edge repair (the dropped S6 seam, impure / O(N²) in pure Nix) |
 | Radul & Sussman (2009) "Art of the Propagator" | Informed by | Provenance (§6.1 support, **name-faithful only** — `support`/`why`/`whyNot`) + retraction (§6.2 `kick-out!`, `retract`'s destructive-delete half); no TMS / merge-lattice / worldviews |
