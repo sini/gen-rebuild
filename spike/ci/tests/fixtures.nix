@@ -10,6 +10,7 @@
 # the cone); cone via genRebuild.dirtySet (the over-approx reverse-reachable set).
 {
   lib,
+  graph,
   genRebuild,
   spike,
   ...
@@ -185,6 +186,36 @@ in
     test-tiny-cone-much-smaller = {
       expr = (coneLen tinyCone) * 4 <= builtins.length tinyCone.allIds;
       expected = true;
+    };
+
+    # modRecompute — the SECOND cutoff recompute (the corpus pins use satRecompute;
+    # this guards the header's "saturating AND modular" claim). Two raws differing by
+    # a multiple of k collapse to one residue: weight 3 → 103 under modRecompute 100
+    # leaves value (3 mod 100 = 3) unchanged ⇒ modular cutoff ⇒ AFFECTED empty.
+    test-modrecompute-collision = {
+      expr =
+        let
+          acc = graph.mkGraph {
+            nodeData = {
+              n = {
+                weight = 3;
+              };
+            };
+          };
+          ctx = genRebuild.build {
+            accessor = acc;
+            recompute = fx.modRecompute 100;
+            hashOf = (fx.pin "chain").hashOf;
+          };
+          acc' = acc // {
+            nodeData = id: if id == "n" then { weight = 103; } else acc.nodeData id;
+          };
+        in
+        (genRebuild.affectedSet ctx {
+          accessor' = acc';
+          changedIds = [ "n" ];
+        }).affected;
+      expected = [ ];
     };
   };
 }
