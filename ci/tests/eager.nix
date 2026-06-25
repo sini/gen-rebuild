@@ -215,6 +215,127 @@ let
     b.weight = 20;
     c.weight = 200;
   };
+
+  # ===========================================================================
+  # SOUNDNESS GATE (Task 3) — the production proof for the eager fast path.
+  # ===========================================================================
+
+  # --- 120-seed byte-identity property (mirrors override.nix:16-33) ------------
+  # For each seeded random DAG, `propagateEager ctx { ${changedId} = newDecls; }`
+  # must produce a store BYTE-IDENTICAL to a from-scratch build over the changed
+  # accessor (c.acc'). mkCase's recompute is ADDITIVE (`weight + Σdeps`), so it
+  # NEVER cuts off — every cone node moves, the worst case for an eager push: the
+  # whole cone is reconstructed, and it must still match the oracle node-for-node.
+  seeds = lib.range 1 120;
+  isSound =
+    seed:
+    let
+      c = mkCase seed;
+      ctx = build {
+        accessor = c.acc;
+        inherit (c) recompute hashOf;
+      };
+      eager = propagateEager ctx {
+        ${c.changedId} = c.newDecls;
+      };
+      oracleStore =
+        (build {
+          accessor = c.acc';
+          inherit (c) recompute hashOf;
+        }).store;
+    in
+    eager.store == oracleStore;
+  failingSeeds = builtins.filter (seed: !(isSound seed)) seeds;
+
+  # --- cutoff-join §4(B): Q is in-cone but NEVER enqueued (priorStore carry) ----
+  # The decisive soundness case the single-id 120-seed can't reach. Edges are
+  # consumer→producer; recompute = satRecompute 100. Change A's weight 10→20:
+  #   A []      10→20  : 10→20                       moves (the seed)
+  #   M [A]     5       : min(100,15)=15 → 25         moves ⇒ enqueues J
+  #   P [A]     95      : min(100,105)=100 → 100      COLLIDES ⇒ CUTOFF (no enqueue)
+  #   Q [P]     3       : min(100,103)=100 → 100      in-cone but NEVER enqueued
+  #   J [M,Q]   1       : min(100,116)=100 → 100      enqueued by M, collides
+  # cone(A) = {A,M,P,Q,J}; AFFECTED = {A,M}. Q sits in the cone yet is never
+  # enqueued (its sole enqueuer P cut off), so its value must be CARRIED from the
+  # prior store via `ctx.store // settled` — not recomputed. This is the §4(B) carry.
+  joinCap = 100;
+  joinSat =
+    a: s: id:
+    let
+      raw = (a.nodeData id).weight + lib.foldl' (acc: dep: acc + s.${dep}) 0 (a.edges id);
+    in
+    if raw > joinCap then joinCap else raw;
+  joinAcc = graph.mkGraph {
+    edges = [
+      {
+        from = "M";
+        to = "A";
+      }
+      {
+        from = "P";
+        to = "A";
+      }
+      {
+        from = "Q";
+        to = "P";
+      }
+      {
+        from = "J";
+        to = "M";
+      }
+      {
+        from = "J";
+        to = "Q";
+      }
+    ];
+    nodeData = {
+      A.weight = 10;
+      M.weight = 5;
+      P.weight = 95;
+      Q.weight = 3;
+      J.weight = 1;
+    };
+  };
+  joinFx = {
+    accessor = joinAcc;
+    recompute = joinSat;
+    inherit hashOf;
+  };
+  joinCtx = ctxOf joinFx;
+  joinChanges = {
+    A.weight = 20;
+  };
+  joinEager = propagateEager joinCtx joinChanges;
+  joinOracleStore = oracle joinFx joinChanges;
+  # Q's in-cone-but-cut-off value: equal to the PRIOR store (unmoved) AND the oracle.
+  joinCone = dirtySet joinCtx [ "A" ];
+  # POISON proof that Q is CARRIED, never recomputed (a RIGHT-REASON proof: the
+  # value pins above only show store.Q == prior == oracle == 100, which a buggy op
+  # that DID recompute Q would also satisfy). P collides ⇒ cuts off ⇒ Q's sole
+  # enqueuer is dead ⇒ eager never recomputes Q, so joinPoison (throw on Q) never
+  # fires. A from-scratch build DOES recompute Q and throws — parallel to the
+  # deep-cut poison pair above, but for the re-convergent join shape §4(B) needs.
+  joinPoison =
+    a: s: id:
+    if id == "Q" then
+      throw "POISON: Q recomputed (must be carried from priorStore)"
+    else
+      joinSat a s id;
+  joinPoisonCtx = joinCtx // {
+    recompute = joinPoison;
+  };
+  joinEagerCarriesQ =
+    (builtins.tryEval (builtins.deepSeq (propagateEager joinPoisonCtx joinChanges).store true)).success;
+  joinPoisonIsReal =
+    !(builtins.tryEval (
+      builtins.deepSeq
+        (build {
+          accessor = withChange joinAcc joinChanges;
+          recompute = joinPoison;
+          inherit hashOf;
+        }).store
+        true
+    )).success;
 in
 {
   flake.tests.eager = {
@@ -322,6 +443,63 @@ in
     # ...and the poison is real: a from-scratch build recomputes the tail and throws.
     test-deep-poison-is-real = {
       expr = poisonIsReal;
+      expected = true;
+    };
+
+    # ===== SOUNDNESS GATE: 120-seed byte-identity (mirrors override.nix) =====
+    # The thesis for the eager fast path: over 120 random DAGs, the eager push is
+    # byte-identical to a from-scratch build over the changed accessor. mkCase is
+    # additive ⇒ full-cone propagation, so this is the worst-case (everything moves)
+    # store-equality proof. failingSeeds MUST be empty.
+    test-soundness-120-seeds = {
+      expr = failingSeeds;
+      expected = [ ];
+    };
+
+    # ===== SOUNDNESS GATE: cutoff-join §4(B) — Q carried from priorStore =====
+    # store is byte-identical to the from-scratch oracle...
+    test-join-store-eq-oracle = {
+      expr = joinEager.store == joinOracleStore;
+      expected = true;
+    };
+    # ...the cone is the full {A,M,P,Q,J} (over-approx reverse-reachability)...
+    test-join-cone-is-whole = {
+      expr = builtins.sort builtins.lessThan joinCone;
+      expected = [
+        "A"
+        "J"
+        "M"
+        "P"
+        "Q"
+      ];
+    };
+    # ...and Q (in-cone but never enqueued — its enqueuer P cut off) is CARRIED from
+    # the prior store: equal to ctx.store.Q (unmoved) AND to the oracle's Q.
+    test-join-Q-carried-from-prior = {
+      expr = joinEager.store.Q == joinCtx.store.Q;
+      expected = true;
+    };
+    test-join-Q-eq-oracle = {
+      expr = joinEager.store.Q == joinOracleStore.Q;
+      expected = true;
+    };
+    # decisive sanity: A and M moved (the affected pair), P/Q/J collide at the cap.
+    test-join-A-moved = {
+      expr = joinEager.store.A;
+      expected = 20;
+    };
+    test-join-M-moved = {
+      expr = joinEager.store.M;
+      expected = 25;
+    };
+    # RIGHT-REASON carry proof: eager never recomputes Q (poison on Q never fires),
+    # while a from-scratch build does (poison is real).
+    test-join-poison-Q-carried = {
+      expr = joinEagerCarriesQ;
+      expected = true;
+    };
+    test-join-poison-is-real = {
+      expr = joinPoisonIsReal;
       expected = true;
     };
   };
