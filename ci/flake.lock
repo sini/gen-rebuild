@@ -223,11 +223,11 @@
         "nixpkgs": "nixpkgs_7"
       },
       "locked": {
-        "lastModified": 1782280237,
-        "narHash": "sha256-/WplLKtHVMPUk5dUNLklgbQ2XR/08nrvwgDrwtpI4H0=",
+        "lastModified": 1782352051,
+        "narHash": "sha256-jcGDviL2M5pDalXXLw5v/40Cex0L/N9Mlem5phyjvhg=",
         "owner": "sini",
         "repo": "gen-graph",
-        "rev": "5b8edc8ec57645fb7c1cce22bc30386a4bfca18d",
+        "rev": "8223c57acafd668599b63ae6b3046589b19d773b",
         "type": "github"
       },
       "original": {

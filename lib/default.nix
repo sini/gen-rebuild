@@ -24,6 +24,7 @@ let
     ./affectedSet.nix
     ./provenance.nix
     ./drivers.nix
+    ./eager.nix
     ./structural.nix
     ./restabilize.nix
   ];
