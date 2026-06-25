@@ -18,6 +18,7 @@ build-systems taxonomy, factored out of the *scheduler* (gen-scope) and the
 - [API Reference](#api-reference)
 - [Edge Convention](#edge-convention)
 - [Scope & Soundness](#scope--soundness)
+- [Cut-heavy fast path](#cut-heavy-fast-path)
 - [Demo](#demo)
 - [Testing](#testing)
 - [Theoretical Foundations](#theoretical-foundations)
@@ -272,12 +273,13 @@ The Acar change/propagate split, batching, pull-semantics force, and the fused
 override. Dirtiness is a **value** (`ctx.pending.dirty`), not a mutated flag.
 
 ```
-applyDelta :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
-batch      :: BuiltCtx -> [{ id, newDecls }] -> BuiltCtx
-propagate  :: BuiltCtx -> BuiltCtx
-force      :: BuiltCtx -> id -> value
-forceCtx   :: BuiltCtx -> id -> { value; ctx }
-override   :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
+applyDelta     :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
+batch          :: BuiltCtx -> [{ id, newDecls }] -> BuiltCtx
+propagate      :: BuiltCtx -> BuiltCtx
+propagateEager :: BuiltCtx -> { <changedId> = newDecls; } -> BuiltCtx
+force          :: BuiltCtx -> id -> value
+forceCtx       :: BuiltCtx -> id -> { value; ctx }
+override       :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
 ```
 
 - `applyDelta` — Acar §4.3 change: rewrite `changedId`'s data, stage it in
@@ -285,6 +287,12 @@ override   :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
 - `batch` — fold `applyDelta` over many deltas (one `propagate` then drains them).
 - `propagate` — Acar §4.5 drain-to-quiescence: union-cone splice over all seeds,
   `needsEval`-gated, clearing `pending`.
+- `propagateEager` — opt-in **cut-heavy fast path**: a rank-ordered eager-push that
+  constructs only `O(|AFFECTED| + frontier)` nodes on localized edits (RTD §4.3/§5
+  eager topological push), byte-identical to `propagate`. A constant-factor
+  expensive-axis win on cut-heavy edits — **not** a total-work `O(|AFFECTED|)` bound
+  (it still pays `O(|cone|)` cheap drive bookkeeping). Use `propagate` for full
+  rebuilds; see [Cut-heavy fast path](#cut-heavy-fast-path).
 - `force` / `forceCtx` — Hammer/Adapton demand: drain then read the value
   (`forceCtx` also returns the quiescent ctx). **Full-drain**, not Adapton's
   selective per-edge repair (the dropped S6 seam).
@@ -400,6 +408,37 @@ cutoff edges, containment-pruned propagation, the Adapton selective per-edge
 repair). The impure cross-eval shell is out of scope (a stateful substrate, not a
 deferred component).
 
+### Cut-heavy fast path
+
+`propagateEager` is the opt-in **eager-push** variant of `propagate` for *localized*
+edits — e.g. overriding one host in a large fleet. Where `propagate` materializes the
+full reverse-reachable cone and post-filters AFFECTED, `propagateEager` recomputes
+nodes in producers-first rank order and **cuts at the source**: when a node recomputes
+to its prior hash it enqueues nothing, so the unmoved tail past the cut is never
+constructed. The result store is byte-identical to `propagate` (the unmoved and
+non-cone nodes carry through from the prior store — the §4(B) carry).
+
+The win is precisely scoped, per the [v3 minimality
+spike](https://github.com/sini/gen-rebuild) (verdict: **PARTIAL**):
+
+- **It is a constant-factor expensive-axis win on cut-heavy edits, not an
+  `O(|AFFECTED|)` total bound.** On the expensive axis (recompute / hash / alloc — the
+  ~94% of real cost) it constructs only `O(|AFFECTED| + frontier)` nodes; on cut-heavy
+  shapes (`|AFFECTED| ≪ |cone|`) that is ~12–15% of the cone. But it still pays
+  `O(|cone|)` cheap drive bookkeeping (the cone-local rank precompute + the rank-ordered
+  sweep) **regardless**, so total work is floored at `O(|cone|)`. It does **not** beat
+  `O(|cone|)` total, and it does **not** generalize: on full-propagation shapes (every
+  cone node moves) it constructs the whole cone and exactly matches `propagate`.
+- **When to use:** localized / cut-heavy edits where `|AFFECTED| ≪ |cone|`. **When
+  not:** full rebuilds (every cone node moves) — there the eager push gets no win and
+  `propagate` is the simpler default.
+- **Envelope:** data-change only (edges fixed, like `override`) and an **acyclic** cone
+  (the rank recurrence requires it); a cyclic cone stays in `restabilize` / `runScc`.
+
+True sub-cone *total* work (cross-edit amortization of the ordering bookkeeping) is
+unreachable in a pure single eval and needs the deferred cross-eval persistence layer —
+out of scope here.
+
 ## Demo
 
 [`examples/dag/`](examples/dag/) — the **B demo**: override one host of a small
@@ -423,9 +462,9 @@ incremental core. A runnable zen side-by-side is a v1 follow-on TODO.
 cd ci && nix flake check
 ```
 
-Uses `gen.lib.mkCi` (nix-unit). 179 tests across 16 suites, including the 120-seed
-soundness property, the B demo's thesis assertions, and the cyclic/structural
-generators.
+Uses `gen.lib.mkCi` (nix-unit). 210 tests, including the 120-seed soundness property
+(shared by `override`/`propagate`/`propagateEager`), the B demo's thesis assertions,
+and the cyclic/structural generators.
 
 ## Theoretical Foundations
 
