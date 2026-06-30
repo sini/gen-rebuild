@@ -6,7 +6,7 @@
 # set); `affectedSet` is the exact subset whose hash moved this rebuild.
 #
 # The chicken/egg (a value-change verdict needs the new value, which needs recompute,
-# which needs the AFFECTED set) is broken WITHOUT observing force-order: the lib.fix
+# which needs the AFFECTED set) is broken WITHOUT observing force-order: the prelude.fix
 # DOMAIN is the over-approx cone (so reused deps fall through to ctx.store), each cone
 # node is gated on needsEval (RTD 1983 §5.3 NeedToBeEvaluated, PRE-cutoff), and
 # AFFECTED is POST-filtered from the resulting hashes. This is exactly override's
@@ -20,10 +20,10 @@
 # Precondition (RTD's never-assign-non-final invariant relies on it): acyclic AND
 # fixed edges (the data-change envelope — accessor' differs from ctx.accessor only in
 # the changedIds' nodeData). Topology-changing deltas are the v2 applyDelta seam.
-{ lib, graph, ... }:
+{ prelude, graph, ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded hashMoved;
-  inherit (import ./strategies.nix { inherit lib; }) needsEval;
+  inherit (import ./strategies.nix { }) needsEval;
 in
 {
   affectedSet =
@@ -32,9 +32,9 @@ in
     let
       # Over-approx cone of all changed ids (edges fixed ⇒ cone is stable). O(1)
       # membership via genAttrs — never builtins.elem.
-      cone = lib.unique (changedIds ++ lib.concatMap (graph.dependentsOf accessor') changedIds);
-      coneSet = lib.genAttrs cone (_: true);
-      changedSet = lib.genAttrs changedIds (_: true);
+      cone = prelude.unique (changedIds ++ prelude.concatMap (graph.dependentsOf accessor') changedIds);
+      coneSet = prelude.genAttrs cone (_: true);
+      changedSet = prelude.genAttrs changedIds (_: true);
       newHashOf = id: hashGuarded ctx.hashOf builtStore.${id};
 
       # needsEval-gated splice (identical to override's): a cone node is recomputed
@@ -44,15 +44,15 @@ in
       # reuses the ONE strategies.needsEval predicate per changed id.
       builtStore =
         ctx.store
-        // lib.fix (
+        // prelude.fix (
           s:
-          lib.genAttrs cone (
+          prelude.genAttrs cone (
             id:
             let
               spliced = ctx.store // s;
               mustEval =
                 (changedSet ? ${id})
-                || lib.any (
+                || prelude.any (
                   cid:
                   needsEval {
                     inherit (ctx) trace;
@@ -67,7 +67,7 @@ in
       # AFFECTED = post-filtered from hashes (the keys whose value actually moved).
       affected = builtins.filter (id: hashMoved (newHashOf id) (ctx.trace.${id}.hash or null)) cone;
       reused = builtins.filter (id: !(builtins.elem id affected)) cone;
-      hashes = lib.genAttrs cone newHashOf;
+      hashes = prelude.genAttrs cone newHashOf;
     in
     {
       inherit affected hashes reused;

@@ -23,10 +23,10 @@
 #   - (G3) FUSED-LAW specialized to no-fresh-ids (stable contract ids) —
 #     data-change only, edges fixed.
 #
-{ lib, graph, ... }:
+{ prelude, graph, ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded hashMoved;
-  inherit (import ./strategies.nix { inherit lib; }) needsEval;
+  inherit (import ./strategies.nix { }) needsEval;
 in
 rec {
   # applyDelta — data-change only; return stale-pending ctx.
@@ -40,7 +40,7 @@ rec {
         nodeData = id: if id == changedId then newDecls else ctx.accessor.nodeData id;
       };
       pendingDirty = (ctx.pending.dirty or [ ]) ++ [ changedId ];
-      pendingClean = lib.unique pendingDirty;
+      pendingClean = prelude.unique pendingDirty;
     in
     {
       store = ctx.store;
@@ -55,12 +55,12 @@ rec {
   # batch — fold applyDelta over a list of deltas.
   # Acar Forgy N-token batch: one applyDelta per delta, then one propagate
   # drains the union region.
-  batch = ctx: deltas: lib.foldl' (acc: delta: applyDelta acc delta.id delta.newDecls) ctx deltas;
+  batch = ctx: deltas: prelude.foldl' (acc: delta: applyDelta acc delta.id delta.newDecls) ctx deltas;
 
   # propagate — drain pending.dirty to quiescence via union-cone fix.
   # Acar §4.3 drain-to-quiescence. The seeds are `pending.dirty`; we compute
   # the union-cone (all dependents reachable via forward deps), then splice it
-  # via lib.fix with needsEval-gated recompute (exactly like P2 override but
+  # via prelude.fix with needsEval-gated recompute (exactly like P2 override but
   # over a multi-seed union-cone instead of per-override cone). Re-hash ONLY
   # affected nodes (post-filter from hashes).
   #
@@ -94,18 +94,18 @@ rec {
         accessor' = ctx.accessor; # edges fixed
 
         # Union-cone: seeds + their dependents (entire affected region).
-        unionCone = lib.unique (seeds ++ lib.concatMap (graph.dependentsOf accessor') seeds);
-        unionSet = lib.genAttrs unionCone (_: true);
-        seedSet = lib.genAttrs seeds (_: true);
+        unionCone = prelude.unique (seeds ++ prelude.concatMap (graph.dependentsOf accessor') seeds);
+        unionSet = prelude.genAttrs unionCone (_: true);
+        seedSet = prelude.genAttrs seeds (_: true);
         newHashOf = id: hashGuarded hashOf builtStore.${id};
 
-        # Multi-seed splice: single lib.fix over the union-cone.
+        # Multi-seed splice: single prelude.fix over the union-cone.
         # Reuse nodes with no moved-hash deps; recompute those that do (or are changed).
         builtStore =
           ctx.store
-          // lib.fix (
+          // prelude.fix (
             s:
-            lib.genAttrs unionCone (
+            prelude.genAttrs unionCone (
               id:
               let
                 spliced = ctx.store // s;
@@ -114,13 +114,13 @@ rec {
                 # has N changed inputs (Acar §4.3: each δ ⊕ σ dirties its own node),
                 # so a seed whose OWN data changed must recompute even when its dep
                 # hashes did not move (its value comes from the new nodeData, not from
-                # a moved dependency). Gating on only `lib.head seeds` would reuse the
+                # a moved dependency). Gating on only `prelude.head seeds` would reuse the
                 # other seeds' STALE values — an unsound early-cutoff (RTD §5.3 only
                 # licenses reuse for nodes whose inputs are ALL unchanged).
                 isSeed = seedSet ? ${id};
                 # The dependents (non-seed cone nodes) still ride the hash-moved gate,
                 # seeded at the head — they recompute iff a cone dep's hash moved.
-                seedForPredicate = lib.head seeds;
+                seedForPredicate = prelude.head seeds;
                 mustEval =
                   isSeed
                   || needsEval {
@@ -141,7 +141,7 @@ rec {
 
         trace' =
           ctx.trace
-          // lib.genAttrs affectedInUnion (id: {
+          // prelude.genAttrs affectedInUnion (id: {
             deps = accessor'.edges id;
             hash = newHashOf id;
           });

@@ -26,7 +26,7 @@
 #     equal. The 120-seed property exercises integer-valued nodes.
 #
 # The splice (P2 rewrite — needsEval-gated, per-node-EXACT recompute):
-#   builtStore = ctx.store // lib.fix (s:
+#   builtStore = ctx.store // prelude.fix (s:
 #     genAttrs cone (id:
 #       if needsEval … then recompute accessor' (ctx.store // s) id else ctx.store.${id}))
 # realizes Acar 2002 change propagation (§4.5 algorithm; §7 correctness — change
@@ -38,10 +38,10 @@
 # authoritative `ctx.store // s` form is KEPT: bare `s` would miss non-cone deps of a
 # recomputed node — unsound. This gives the §7 property that the override-store is
 # byte-identical to a from-scratch build, AND skips recompute for reused cone nodes.
-{ lib, graph, ... }:
+{ prelude, graph, ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded hashMoved;
-  inherit (import ./strategies.nix { inherit lib; }) needsEval;
+  inherit (import ./strategies.nix { }) needsEval;
 in
 {
   override =
@@ -58,20 +58,20 @@ in
       # Over-approx cone: changedId + its dependent cone (over the changed accessor;
       # edges are fixed, so this equals the cone over the old accessor). genAttrs
       # gives O(1) membership for the needsEval gate (never builtins.elem).
-      cone = lib.unique ([ changedId ] ++ graph.dependentsOf accessor' changedId);
-      coneSet = lib.genAttrs cone (_: true);
+      cone = prelude.unique ([ changedId ] ++ graph.dependentsOf accessor' changedId);
+      coneSet = prelude.genAttrs cone (_: true);
       newHashOf = id: hashGuarded hashOf builtStore.${id};
 
-      # Reverse-topo splice. lib.fix resolves the cone in dependency order;
+      # Reverse-topo splice. prelude.fix resolves the cone in dependency order;
       # acyclicity (preserved) + fixed edges guarantee termination. Each cone node
       # is gated on needsEval: a node with a moved-hash in-cone dep (or that is
       # changedId, or whose hash is null) is recomputed; otherwise its prior value
       # is reused (still bound in builtStore so dependents read it identically).
       builtStore =
         ctx.store
-        // lib.fix (
+        // prelude.fix (
           s:
-          lib.genAttrs cone (
+          prelude.genAttrs cone (
             id:
             let
               spliced = ctx.store // s;
@@ -95,7 +95,7 @@ in
       # node keeps its prior trace entry byte-identical.
       trace' =
         ctx.trace
-        // lib.genAttrs affected (id: {
+        // prelude.genAttrs affected (id: {
           deps = accessor'.edges id;
           hash = newHashOf id;
         });

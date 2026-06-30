@@ -4,7 +4,7 @@
 # NeedToBeEvaluated (PRE-cutoff) — DISTINCT from verify (RTD §5.3 is "complementary
 # to / distinct from" the value compare); they COINCIDE only in the single-changed-
 # input acyclic data-change envelope, NOT a definitional identity.
-{ lib, ... }:
+{ ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded hashEq hashMoved;
 in

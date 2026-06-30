@@ -1,23 +1,25 @@
 {
   description = "gen-rebuild: pure-Nix incremental rebuilder core (Mokhov rebuilder dimension)";
+
+  # gen-rebuild is nixpkgs-lib-free: depends only on gen-prelude + gen-graph + gen-scope
+  # (all pure, nixpkgs-lib-free). No nixpkgs input.
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    gen-prelude.url = "github:sini/gen-prelude";
     gen-graph.url = "github:sini/gen-graph";
     gen-scope.url = "github:sini/gen-scope";
   };
   outputs =
     {
-      nixpkgs,
+      gen-prelude,
       gen-graph,
       gen-scope,
       ...
     }:
     {
       lib = import ./. {
-        lib = nixpkgs.lib;
-        graph = import gen-graph { lib = nixpkgs.lib; };
-        scope = import gen-scope { lib = nixpkgs.lib; };
+        prelude = gen-prelude.lib;
+        graph = gen-graph.lib;
+        scope = gen-scope.lib;
       };
-      __functor = _: import ./.;
     };
 }

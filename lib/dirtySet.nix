@@ -12,9 +12,9 @@
 #
 # Uses concatMap over the single-target graph.dependentsOf rather than the
 # O(n²) multi-target `dependents` — cheaper for the small changed-id sets v1 sees.
-{ lib, graph, ... }:
+{ prelude, graph, ... }:
 {
   dirtySet =
     ctx: changedIds:
-    lib.unique (changedIds ++ lib.concatMap (graph.dependentsOf ctx.accessor) changedIds);
+    prelude.unique (changedIds ++ prelude.concatMap (graph.dependentsOf ctx.accessor) changedIds);
 }

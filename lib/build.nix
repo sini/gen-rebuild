@@ -1,7 +1,7 @@
 # build — full evaluation into a flat relocatable store + a verifying trace.
 #
 # Mokhov 2018: §3.1 Store (flat relocatable id-keyed map; call-by-need
-# dependency-order resolution via `lib.fix`) + §4.2.2 verifying trace (per-key
+# dependency-order resolution via `prelude.fix`) + §4.2.2 verifying trace (per-key
 # `{ deps; hash }`) + §2.1/§4.1 acyclicity (cyclic deps not allowed ⇒ each task
 # executed at most once).
 #
@@ -9,11 +9,11 @@
 # `recompute` (the node-eval, `accessor -> store -> id -> value`). Pre-checks
 # acyclicity via graph.cycles and throws a *located* blame on a cycle — catchable
 # via builtins.tryEval, never Nix's uncatchable infinite recursion inside the
-# lib.fix loop. Returns a BuiltCtx threading everything `override` needs to splice
+# prelude.fix loop. Returns a BuiltCtx threading everything `override` needs to splice
 # incrementally.
 #
 # Optional `fixpoint` param (default null): when null, build is EXACTLY the
-# acyclic v1 behavior above — throw-on-any-cycle, `lib.fix` store, no `fixpoint`
+# acyclic v1 behavior above — throw-on-any-cycle, `prelude.fix` store, no `fixpoint`
 # key in the returned ctx. When present, build relaxes the precheck (a cycle is
 # allowed iff every cyclic node carries a declared lattice) and computes the
 # store STRATIFIED bottom-up over the condensation (quotient) graph:
@@ -24,8 +24,8 @@
 #   - `cond.bottomUp` is PRODUCERS-FIRST (a consumer SCC appears after every SCC
 #     it depends on), so each stratum reads already-CONVERGED lower strata out of
 #     the accumulator. This is the build-domain-restriction: solve over the
-#     ascending prefix only. It is what AVOIDS the v1 bare-`lib.fix` splice
-#     divergence — a single `lib.fix` over all nodes dispatching `id ∈ scc ?
+#     ascending prefix only. It is what AVOIDS the v1 bare-`prelude.fix` splice
+#     divergence — a single `prelude.fix` over all nodes dispatching `id ∈ scc ?
 #     runScc : recompute` re-invokes runScc once per MEMBER and can read a
 #     not-yet-converged peer SCC, a self-referential thunk black-hole that
 #     escapes builtins.tryEval (Nix uncatchable infinite recursion). The
@@ -38,10 +38,10 @@
 # runtime divergence guard is `runScc`'s per-member maxIter (a catchable blame).
 #
 # Edge convention: accessor.edges id = [ids that id depends on] (consumer→producer).
-{ lib, graph, ... }:
+{ prelude, graph, ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded;
-  inherit (import ./restabilize.nix { inherit lib graph; }) runScc;
+  inherit (import ./restabilize.nix { inherit prelude graph; }) runScc;
 
   build =
     {
@@ -58,7 +58,7 @@ let
       # per-key dep list + content hash (null when the value is unhashable).
       traceFor =
         store:
-        lib.genAttrs accessor.nodes (id: {
+        prelude.genAttrs accessor.nodes (id: {
           deps = accessor.edges id;
           hash = hashGuarded hashOf store.${id};
         });
@@ -79,10 +79,10 @@ let
               path = graph.pathsBetween accessor a b;
             };
 
-          # Flat relocatable store (Mokhov 2018 §3.1): lib.fix resolves deps in
+          # Flat relocatable store (Mokhov 2018 §3.1): prelude.fix resolves deps in
           # dependency order via call-by-need; terminates because the precheck
           # guarantees acyclicity.
-          store = lib.fix (s: lib.genAttrs accessor.nodes (id: recompute accessor s id));
+          store = prelude.fix (s: prelude.genAttrs accessor.nodes (id: recompute accessor s id));
           trace = traceFor store;
         in
         if cyclic != [ ] then
@@ -113,12 +113,12 @@ let
           };
 
           cond = graph.condensation accessor;
-          cyclicSet = lib.genAttrs cyclic (_: true);
+          cyclicSet = prelude.genAttrs cyclic (_: true);
 
           # Bottom-up fold over the condensation strata (producers-first). Each
           # stratum reads the accumulator `acc` (the already-converged lower
           # strata) as its externals.
-          solved = lib.foldl' (
+          solved = prelude.foldl' (
             acc: tag:
             let
               members = cond.members tag;
@@ -137,9 +137,9 @@ let
               }
             else
               # Acyclic singleton: recompute reading acc (lower strata) as
-              # externals. Byte-identical to v1's lib.fix value (deps already in
+              # externals. Byte-identical to v1's prelude.fix value (deps already in
               # acc, walked in dependency order).
-              acc // lib.genAttrs members (m: recompute accessor acc m)
+              acc // prelude.genAttrs members (m: recompute accessor acc m)
           ) { } cond.bottomUp;
 
           store = solved;

@@ -2,7 +2,7 @@
 # (Acar 2002) + the AFFECTED set (Reps–Teitelbaum–Demers 1983) + reverse-
 # reachability (Arntzenius 2016 Datafun).
 {
-  lib,
+  prelude,
   graph,
   # `scope` (gen-scope) is threaded for call-compatibility but UNUSED — no lib op
   # consumes it. The sketched warm-cache adapter (gen-scope `evalWarm`) was found
@@ -12,7 +12,7 @@
   scope,
 }:
 let
-  args = { inherit lib graph scope; };
+  args = { inherit prelude graph scope; };
   # Per-concern modules; one file = one concern. Merged left-to-right with //.
   # The surface grows here as tasks land. drivers.nix is positioned after
   # override.nix so the fused `override` definition wins (drivers.override
@@ -31,4 +31,4 @@ let
     ./restabilize.nix
   ];
 in
-lib.foldl' (acc: m: acc // import m args) { } modules
+prelude.foldl' (acc: m: acc // import m args) { } modules

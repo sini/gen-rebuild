@@ -33,7 +33,7 @@
 #
 # `graph`/`scope` are threaded for sibling ops (restabilize lands beside this);
 # runScc itself takes its topology via the `accessor` field.
-{ lib, graph, ... }:
+{ prelude, graph, ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded hashMoved;
 
@@ -66,23 +66,23 @@ let
         let
           # In-SCC deps read the current iterate (prev); externals read store /
           # higherStrata. The // merge gives `recompute` the unified view.
-          cur = lib.genAttrs M (m: recompute accessor (store // higherStrata // prev) m);
+          cur = prelude.genAttrs M (m: recompute accessor (store // higherStrata // prev) m);
           # PINNED DETAIL 1: widen applies AFTER join, per-member.
-          next = lib.mapAttrs (
+          next = prelude.mapAttrs (
             m: _v:
             let
               j = lattices.${m}.join prev.${m} cur.${m};
             in
             if (lattices.${m}.widen or null) != null then lattices.${m}.widen prev.${m} j else j
           ) cur;
-          maxI = lib.foldl' (acc: m: lib.max acc (lattices.${m}.maxIter or 100)) 0 M;
+          maxI = prelude.foldl' (acc: m: prelude.max acc (lattices.${m}.maxIter or 100)) 0 M;
           # PINNED DETAIL 2: lastDelta = the still-moving members' prev/next pairs.
-          moving = lib.filter (m: !(eqOf m prev.${m} next.${m})) M;
+          moving = prelude.filter (m: !(eqOf m prev.${m} next.${m})) M;
           blame = {
             why = "fixpoint-diverged";
             scc = M;
             iters = iter;
-            lastDelta = lib.genAttrs moving (m: {
+            lastDelta = prelude.genAttrs moving (m: {
               prev = prev.${m};
               next = next.${m};
             });
@@ -93,13 +93,13 @@ let
         if iter >= maxI then
           throw "gen-rebuild: fixpoint did not converge: ${builtins.toJSON blame}"
         # Per-MEMBER eq: each node's OWN eq predicate drives its quiescence.
-        else if lib.all (m: eqOf m prev.${m} next.${m}) M then
+        else if prelude.all (m: eqOf m prev.${m} next.${m}) M then
           next
         else
           go (iter + 1) next;
     in
     # Per-member ⊥ seed (Arntzenius iterate-from-bottom).
-    go 0 (lib.genAttrs M (m: lattices.${m}.bottom));
+    go 0 (prelude.genAttrs M (m: lattices.${m}.bottom));
 
   # restabilize — the CYCLIC-CAPABLE analogue of `override`.
   #
@@ -164,18 +164,18 @@ let
       };
 
       cond = graph.condensation accessor';
-      cyclicSet = lib.genAttrs cyclic (_: true);
+      cyclicSet = prelude.genAttrs cyclic (_: true);
 
       # Dependent cone of changedId (reverse reachability; valid on cyclic
       # graphs — Arntzenius 2016 reverse reachability).
-      cone = lib.unique ([ changedId ] ++ graph.dependentsOf accessor' changedId);
-      coneSet = lib.genAttrs cone (_: true);
+      cone = prelude.unique ([ changedId ] ++ graph.dependentsOf accessor' changedId);
+      coneSet = prelude.genAttrs cone (_: true);
 
       # Bottom-up fold (producers-first over the condensation), accumulator SEEDED
       # at ctx.store: non-cone strata are skipped (their ctx.store values are
       # unaffected by a data change to changedId and stay), cone strata are
       # re-solved reading acc (already-solved lower strata) as externals.
-      solved = lib.foldl' (
+      solved = prelude.foldl' (
         acc: tag:
         let
           members = cond.members tag;
@@ -200,7 +200,7 @@ let
         else
           # Acyclic cone singleton: recompute reading acc (lower strata) as
           # externals. Byte-identical to a full rebuild's value (== override).
-          acc // lib.genAttrs coneMembers (m: recompute accessor' acc m)
+          acc // prelude.genAttrs coneMembers (m: recompute accessor' acc m)
       ) ctx.store cond.bottomUp;
 
       store = solved;
@@ -210,7 +210,7 @@ let
       affected = builtins.filter (id: hashMoved (newHashOf id) (ctx.trace.${id}.hash or null)) cone;
       trace' =
         ctx.trace
-        // lib.genAttrs affected (id: {
+        // prelude.genAttrs affected (id: {
           deps = accessor'.edges id;
           hash = newHashOf id;
         });

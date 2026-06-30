@@ -11,13 +11,13 @@
 # Honest envelope (preconditions; out-of-envelope ⇒ use propagate):
 #   - DATA-change only: `changes` replaces nodeData; EDGES ARE FIXED (cone over accessor' ==
 #     cone over ctx.accessor), exactly like override.
-#   - ACYCLIC cone: graph.coneRank requires it (a cyclic cone makes its lib.fix recurrence
+#   - ACYCLIC cone: graph.coneRank requires it (a cyclic cone makes its prelude.fix recurrence
 #     self-referential ⇒ uncatchable infinite recursion). Cyclic stays in restabilize/runScc.
 #   - COST: a constant-factor win on the EXPENSIVE axis (recompute/hash/alloc) for cut-heavy
 #     edits; it still pays O(|cone|) cheap drive bookkeeping (rank + sweep), so it is NOT a
 #     total-work O(|AFFECTED|) bound (v3 minimality spike verdict: PARTIAL — sub-cone on
 #     cut-heavy, no asymptotic minimality in pure substrate).
-{ lib, graph, ... }:
+{ prelude, graph, ... }:
 let
   inherit (import ./hash.nix { }) hashGuarded hashMoved;
 in
@@ -29,8 +29,8 @@ in
       accessor' = ctx.accessor // {
         nodeData = id: changes.${id} or (ctx.accessor.nodeData id);
       };
-      cone = lib.unique (changedIds ++ lib.concatMap (graph.dependentsOf accessor') changedIds);
-      coneSet = lib.genAttrs cone (_: true);
+      cone = prelude.unique (changedIds ++ prelude.concatMap (graph.dependentsOf accessor') changedIds);
+      coneSet = prelude.genAttrs cone (_: true);
       rank = graph.coneRank accessor' cone;
       revAll = graph.directDependents accessor'; # FULL direct reverse-adjacency map
       # Restrict to cone: a moved node enqueues only its IN-CONE direct dependents. gen-graph
@@ -52,18 +52,18 @@ in
             settled = st.settled // {
               ${id} = v;
             };
-            enqueued = if moved then st.enqueued // lib.genAttrs (ddCone id) (_: true) else st.enqueued;
+            enqueued = if moved then st.enqueued // prelude.genAttrs (ddCone id) (_: true) else st.enqueued;
             affected = if moved then st.affected ++ [ id ] else st.affected;
           };
-      final = lib.foldl' step {
-        enqueued = lib.genAttrs changedIds (_: true);
+      final = prelude.foldl' step {
+        enqueued = prelude.genAttrs changedIds (_: true);
         settled = { };
         affected = [ ];
       } rank.order;
       store = ctx.store // final.settled;
       trace' =
         ctx.trace
-        // lib.genAttrs final.affected (id: {
+        // prelude.genAttrs final.affected (id: {
           deps = accessor'.edges id;
           hash = hashGuarded ctx.hashOf store.${id};
         });

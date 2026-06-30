@@ -24,7 +24,7 @@
 # Edge convention: accessor.edges id = ids `id` depends on (consumer→producer); an
 # override of `changedId` recomputes its dependent cone, i.e. every `id` that can
 # REACH `changedId` over forward edges.
-{ lib, graph, ... }:
+{ prelude, graph, ... }:
 let
   sort = builtins.sort builtins.lessThan;
 
@@ -77,11 +77,11 @@ let
       # Explain / cutoff-overlay mode: enumerate the acyclic paths id → changedId.
       # A path's INTERIOR (RTD-style cmp-unchanged cut points) is the nodes strictly
       # between id and changedId; changedId is NEVER an interior node (you cannot cut
-      # the change origin). interior p = lib.init (lib.tail p): tail drops `id`, init
+      # the change origin). interior p = prelude.init (prelude.tail p): tail drops `id`, init
       # drops `changedId` — a direct edge [id, changedId] has interior [].
       let
         paths = graph.pathsBetween ctx.accessor id changedId;
-        interior = p: lib.init (lib.tail p);
+        interior = p: prelude.init (prelude.tail p);
         # A node cuts a path iff the overlay marks it true AND it is hashable: a
         # null-hash node is always-dirty and can NEVER be a cutoff (missing overlay
         # key reads false via `or false`).
@@ -98,7 +98,7 @@ let
         # (one per blocked path — when different paths are cut by different nodes
         # there is no single common cutAt). A live path (null witness) ⇒ recomputed.
         allBlocked = builtins.all (w: w != null) witnesses;
-        cutNodes = sort (lib.unique (builtins.filter (w: w != null) witnesses));
+        cutNodes = sort (prelude.unique (builtins.filter (w: w != null) witnesses));
       in
       if allBlocked then
         {

@@ -1,6 +1,6 @@
 {
-  lib,
+  prelude,
   graph,
   scope,
 }:
-import ./lib { inherit lib graph scope; }
+import ./lib { inherit prelude graph scope; }
