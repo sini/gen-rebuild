@@ -16,7 +16,7 @@
       ...
     }:
     let
-      prelude = import "${gen-prelude}/lib" { };
+      prelude = import "${gen-prelude}/lib";
       graph = gen-graph.lib;
       scope = gen-scope.lib;
       genRebuild = import ../lib { inherit prelude graph scope; };
