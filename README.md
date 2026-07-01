@@ -6,7 +6,9 @@ gen-rebuild answers one question — **"given the last evaluation, must key K be
 recomputed?"** — and performs the minimal recompute + reuse. It is the *rebuilder*
 dimension of [Mokhov 2018](https://www.microsoft.com/en-us/research/publication/build-systems-la-carte/)'s
 build-systems taxonomy, factored out of the *scheduler* (gen-scope) and the
-*topology oracle* (gen-graph) as a standalone, pure-Nix gen library.
+*topology oracle* (gen-graph) as a standalone, pure-Nix gen library. It is
+**nixpkgs-lib-free** (Class B): it depends only on gen-prelude, gen-graph and
+gen-scope — all pure, nixpkgs-lib-free — and takes no `<nixpkgs>` input.
 
 ## Table of Contents
 
@@ -47,10 +49,10 @@ gen-rebuild (rebuilder)  ◄── THIS LIB
 ```
 
 It owns a flat, **relocatable** result-store (plain values, not thunks closed over
-a `lib.fix self`) — relocatability is what makes reuse-across-change possible. A
+a `prelude.fix self`) — relocatability is what makes reuse-across-change possible. A
 change recomputes only the dependent **cone** via a reverse-topo splice
 (`priorStore // fix-of-cone`); everything else is reused byte-for-byte. The acyclic
-core runs its own thin store-backed `lib.fix` eval loop; the cyclic path stratifies
+core runs its own thin store-backed `prelude.fix` eval loop; the cyclic path stratifies
 the solve bottom-up over `graph.condensation` and runs a per-SCC fixpoint
 (`runScc`). The surface is now the **full v1+v2 rebuilder**: dirty-bit reuse with
 per-node early-cutoff, exact AFFECTED, provenance, change/propagate drivers,
@@ -79,22 +81,24 @@ gap stated honestly.
 
 | Library | Role |
 |---------|------|
-| [gen-algebra](https://github.com/sini/gen-algebra) | Pure primitives (search, record, identity) |
+| [gen-prelude](https://github.com/sini/gen-prelude) | Pure nixpkgs-lib-free utility base (builtins re-exports + vendored lib utils) |
+| [gen-algebra](https://github.com/sini/gen-algebra) | Pure primitives (record, search monad, either, intensional identity) |
 | [gen-schema](https://github.com/sini/gen-schema) | Typed registries (kinds, instances, collections, refs) |
-| [gen-aspects](https://github.com/sini/gen-aspects) | Aspect types (traits, classification, dispatch) |
-| [gen-graph](https://github.com/sini/gen-graph) | Graph queries (combinators, traversals, fixpoint) |
-| [gen-scope](https://github.com/sini/gen-scope) | Scope graphs (construction, evaluation, resolution) |
+| [gen-aspects](https://github.com/sini/gen-aspects) | Aspect type system (traits, classification, dispatch) |
+| [gen-scope](https://github.com/sini/gen-scope) | HOAG scope-graph evaluator (demand-driven, \_eval memoization, circular attributes) |
+| [gen-graph](https://github.com/sini/gen-graph) | Accessor-based graph query combinators (traversal, condensation, phaseOrder) |
 | [gen-select](https://github.com/sini/gen-select) | Selector algebra (pattern matching over graph positions) |
-| [gen-bind](https://github.com/sini/gen-bind) | Module binding (inject args into NixOS modules) |
-| [gen-derive](https://github.com/sini/gen-derive) | Rule dispatch (stratified phases, fixpoint, conflict resolution) |
-| [gen-vars](https://github.com/sini/gen-vars) | Variable generation (scope-driven, multi-target) |
-| [gen-rebuild](https://github.com/sini/gen-rebuild) | Incremental rebuilder (dirty-bit, dependent-cone reuse) |
+| [gen-bind](https://github.com/sini/gen-bind) | Module binding (inject external args into NixOS modules) |
+| [gen-dispatch](https://github.com/sini/gen-dispatch) | Relational rule dispatch STEP (stratified phases, conflict resolution) |
+| [gen-resolve](https://github.com/sini/gen-resolve) | Demand-driven RAG evaluator over scope graphs (attribute schedule + convergence loop) |
+| [gen-rebuild](https://github.com/sini/gen-rebuild) | Pure-Nix incremental rebuilder (change propagation, AFFECTED set) |
+| [gen-vars](https://github.com/sini/gen-vars) | Pure-Nix vars/secrets (den-agnostic) |
 
 ## Quick Start
 
 ### As a flake input
 
-gen-rebuild's `lib` output comes pre-wired with gen-graph + gen-scope:
+gen-rebuild's `lib` output comes pre-wired with gen-prelude + gen-graph + gen-scope:
 
 ```nix
 {
@@ -112,12 +116,16 @@ gen-rebuild's `lib` output comes pre-wired with gen-graph + gen-scope:
 
 ### Without flakes
 
+gen-rebuild takes its three gen deps as values (no `<nixpkgs>` `lib`). The sibling
+standalone shims auto-derive `prelude` from their pinned lock, so each is a plain
+`import`:
+
 ```nix
 let
-  lib = (import <nixpkgs> { }).lib;
-  graph = import ./path/to/gen-graph { inherit lib; };
-  scope = import ./path/to/gen-scope { inherit lib; };
-  rebuild = import ./path/to/gen-rebuild { inherit lib graph scope; };
+  prelude = import ./path/to/gen-prelude;      # the pure lib value itself
+  graph = import ./path/to/gen-graph { };      # auto-derives prelude
+  scope = import ./path/to/gen-scope { };       # auto-derives prelude
+  rebuild = import ./path/to/gen-rebuild { inherit prelude graph scope; };
 in
 rebuild.build {
   accessor = …;
@@ -149,7 +157,7 @@ let
   };
   recompute =
     acc: store: id:
-    (acc.nodeData id).weight + lib.foldl' (sum: dep: sum + store.${dep}) 0 (acc.edges id);
+    (acc.nodeData id).weight + builtins.foldl' (sum: dep: sum + store.${dep}) 0 (acc.edges id);
   hashOf = v: builtins.hashString "sha256" (builtins.toJSON v);
 
   ctx = build { inherit accessor recompute hashOf; };
@@ -184,7 +192,7 @@ Full evaluation into a flat store + verifying trace.
 In the **v1 (acyclic)** path it pre-checks acyclicity via `graph.cycles` and
 **throws a catchable located-cycle blame** on a cycle — the `{ why; cycle; path }`
 record is constructed from `graph.cycles` and embedded in the thrown error, so
-`builtins.tryEval` catches it instead of diverging inside the `lib.fix` loop.
+`builtins.tryEval` catches it instead of diverging inside the `prelude.fix` loop.
 
 Returns `BuiltCtx = { store, trace, accessor, recompute, hashOf }` (plus `fixpoint`
 when one was supplied).
@@ -313,7 +321,7 @@ retract       :: BuiltCtx -> deadId -> retractPolicy -> BuiltCtx
 applyEdgeDelta :: BuiltCtx -> changedId -> newEdges -> BuiltCtx
 ```
 
-- `mkAccessor` — rebuild a full accessor record (`edges` deduped via `lib.unique`).
+- `mkAccessor` — rebuild a full accessor record (`edges` deduped via `prelude.unique`).
 - `retract` — Radul §6.2 `kick-out!` (destructive half): delete `deadId` and splice
   it out of every dependent. `retractPolicy ∈ { "error", "recompute-without" }`
   (default `"error"` throws on declared in-edges). No cycle recheck — deletion only
@@ -363,14 +371,14 @@ plus fixed adversarial shapes. The guarantee is precisely scoped:
 - **Located cycles, not divergence.** With `fixpoint = null` a cyclic accessor
   yields a **catchable throw** (the `{ why; cycle; path }` blame embedded in the
   error), never Nix's uncatchable infinite recursion. `tryEval` does **not** catch
-  a `lib.fix` black-hole, so divergence is guarded *structurally* — by the located
+  a `prelude.fix` black-hole, so divergence is guarded *structurally* — by the located
   prechecks (`graph.cycles`, `reCycleCheck`) and by `runScc`'s `maxIter`, never by
   catching infinite recursion.
 
 ### Cyclic fixpoints
 
 `build`'s `fixpoint` param is the opt-in to cyclic graphs. With `fixpoint = null`
-(default) `build` is **exactly v1** — throw-on-any-cycle, `lib.fix` store, no
+(default) `build` is **exactly v1** — throw-on-any-cycle, `prelude.fix` store, no
 `fixpoint` key in the ctx. When present, a cycle is admitted iff **every** cyclic
 node carries a declared **per-node lattice**:
 
@@ -394,7 +402,7 @@ Three caveats:
 - **Fixed-point-equality, not byte-identity.** A cyclic SCC's value matches a
   from-scratch build by *equality of two fixpoint computations to the same unique
   least fixed point* (Arntzenius Lemma 4 on a finite-height bounded semilattice) —
-  **not** the v1 byte-identical-to-the-acyclic-`lib.fix` property. The acyclic
+  **not** the v1 byte-identical-to-the-acyclic-`prelude.fix` property. The acyclic
   strata retain the v1 byte-identical guarantee.
 - **Consumer obligation: monotonicity + finite height.** `runScc` does **not** check
   that `recompute`/`join` are monotone or that the lattice is finite-height. A
