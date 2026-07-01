@@ -19,7 +19,7 @@
 #     SHIPPED as `propagateEager` (lib/eager.nix). True total-work O(|AFFECTED|) (RTD
 #     S7 characteristic-graph cutoff edges) is NOT reachable in pure single-eval (v3
 #     spike verdict: PARTIAL) — it needs the deferred cross-eval substrate
-#     (gen-specs/gen-rebuild/FUTURE_WORK.md), not a pure v3 component.
+#     (future work), not a pure v3 component.
 #   - (G3) FUSED-LAW specialized to no-fresh-ids (stable contract ids) —
 #     data-change only, edges fixed.
 #

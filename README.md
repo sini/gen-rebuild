@@ -8,12 +8,14 @@ dimension of [Mokhov 2018](https://www.microsoft.com/en-us/research/publication/
 build-systems taxonomy, factored out of the *scheduler* (gen-scope) and the
 *topology oracle* (gen-graph) as a standalone, pure-Nix gen library. It is
 **nixpkgs-lib-free** (Class B): it depends only on gen-prelude, gen-graph and
-gen-scope — all pure, nixpkgs-lib-free — and takes no `<nixpkgs>` input.
+gen-scope — all pure, nixpkgs-lib-free — and takes no `<nixpkgs>` input. A dedicated
+`purity` CI suite pins that invariant: a stray `nixpkgs.lib` / `evalModules` in the
+source fails the build.
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Terminology](#terminology)
+- [Overview](#overview)
 - [Gen Ecosystem](#gen-ecosystem)
 - [Quick Start](#quick-start)
 - [Example](#example)
@@ -25,6 +27,24 @@ gen-scope — all pure, nixpkgs-lib-free — and takes no `<nixpkgs>` input.
 - [Testing](#testing)
 - [Theoretical Foundations](#theoretical-foundations)
 - [License](#license)
+
+## Terminology
+
+| Term | Definition | Source |
+| ---------- | -------------------------------------------------------------- | ------------------------------------- |
+| Rebuilder | decides reuse: "must K be recomputed, given last time?" | Mokhov 2018 |
+| Store | flat relocatable id-keyed result map `{ <id> = value; }` | Mokhov 2018 (result store) |
+| Trace | per-key `{ deps; hash }` verifying record | Mokhov 2018 (verifying trace) |
+| Cone | dependent cone of `x` — everyone who transitively depends on x | gen-graph (reverse reachability) |
+| Dirty set | changed ids ∪ their dependent cones (v1 over-approx) | Reps–Teitelbaum–Demers 1983 (AFFECTED set) |
+| Splice | `priorStore // fix-of-cone` — recompute the cone, reuse rest | Acar 2002 (change propagation) |
+| BuiltCtx | the threaded `{ store, trace, accessor, recompute, hashOf }` | — |
+| AFFECTED | the keys whose value *actually* moved — post-filtered, not precomputed | Reps–Teitelbaum–Demers 1983 §4.3 |
+| Early-cutoff | reuse a node whose inputs are all unchanged-hash | RTD 1983 (§4.1 value-cutoff, §5.3 NeedToBeEvaluated) |
+| Change / Propagate | `applyDelta` (rewrite data) vs `propagate` (drain dirty-set) | Acar 2002 (§4.3 change, §4.5 propagate) |
+| Support | the transitive declared *producers* of a node (name-faithful) | Radul 2009 §6.1 |
+| Lattice | per-node `{ bottom; join; eq?; widen?; maxIter? }` for a cyclic solve | Arntzenius 2016 (Datafun Lemma 4) |
+| SCC / condensation | the cyclic strata, solved producers-first bottom-up | Tarjan 1972 / Kosaraju (via gen-graph) |
 
 ## Overview
 
@@ -58,24 +78,6 @@ the solve bottom-up over `graph.condensation` and runs a per-SCC fixpoint
 per-node early-cutoff, exact AFFECTED, provenance, change/propagate drivers,
 structural deltas, and a cyclic re-stabilizer — sound and demonstrable, with each
 gap stated honestly.
-
-## Terminology
-
-| Term | Definition | Source |
-| ---------- | -------------------------------------------------------------- | ------------------------------------- |
-| Rebuilder | decides reuse: "must K be recomputed, given last time?" | Mokhov 2018 |
-| Store | flat relocatable id-keyed result map `{ <id> = value; }` | Mokhov 2018 (result store) |
-| Trace | per-key `{ deps; hash }` verifying record | Mokhov 2018 (verifying trace) |
-| Cone | dependent cone of `x` — everyone who transitively depends on x | gen-graph (reverse reachability) |
-| Dirty set | changed ids ∪ their dependent cones (v1 over-approx) | Reps–Teitelbaum–Demers 1983 (AFFECTED set) |
-| Splice | `priorStore // fix-of-cone` — recompute the cone, reuse rest | Acar 2002 (change propagation) |
-| BuiltCtx | the threaded `{ store, trace, accessor, recompute, hashOf }` | — |
-| AFFECTED | the keys whose value *actually* moved — post-filtered, not precomputed | Reps–Teitelbaum–Demers 1983 §4.3 |
-| Early-cutoff | reuse a node whose inputs are all unchanged-hash | RTD 1983 (§4.1 value-cutoff, §5.3 NeedToBeEvaluated) |
-| Change / Propagate | `applyDelta` (rewrite data) vs `propagate` (drain dirty-set) | Acar 2002 (§4.3 change, §4.5 propagate) |
-| Support | the transitive declared *producers* of a node (name-faithful) | Radul 2009 §6.1 |
-| Lattice | per-node `{ bottom; join; eq?; widen?; maxIter? }` for a cyclic solve | Arntzenius 2016 (Datafun Lemma 4) |
-| SCC / condensation | the cyclic strata, solved producers-first bottom-up | Tarjan 1972 / Kosaraju (via gen-graph) |
 
 ## Gen Ecosystem
 
@@ -418,8 +420,8 @@ V-push). True total-work `O(|AFFECTED|)` (RTD characteristic-graph cutoff edges,
 containment-pruned propagation, the Adapton selective per-edge repair) is **not** a
 pure intra-eval optimization — the v3 minimality spike proved it unreachable in a
 single pure eval (verdict PARTIAL). It needs the impure cross-eval substrate (a
-stateful shell, not a deferred component) — see
-`gen-specs/gen-rebuild/FUTURE_WORK.md`.
+stateful shell, not a deferred component), which is out of scope for this pure
+library.
 
 ### Cut-heavy fast path
 
@@ -472,19 +474,25 @@ incremental core. A runnable zen side-by-side is a v1 follow-on TODO.
 ## Testing
 
 ```sh
-cd ci && nix flake check
+cd ci && nix flake check                       # whole suite
+nix-unit --flake ./ci#tests.<suite>.<test>     # a single suite/test
 ```
 
-Uses `gen.lib.mkCi` (nix-unit). 210 tests, including the 120-seed soundness property
-(shared by `override`/`propagate`/`propagateEager`), the B demo's thesis assertions,
-and the cyclic/structural generators.
+Uses `gen.lib.mkCi` (nix-unit). **211 tests across 15 suites** (`affected`,
+`affectedSet`, `build`, `demo`, `dirtySet`, `drivers`, `eager`, `hash`, `override`,
+`provenance`, `purity`, `restabilize`, `smoke`, `strategies`, `structural`),
+including the 120-seed soundness property (shared by
+`override`/`propagate`/`propagateEager`), the B demo's thesis assertions, and the
+cyclic/structural cases (fed by the `gen`/`cyclicGen`/`structuralGen` deterministic
+seeded generators). The `purity` suite is the Class-B invariant: it fails CI if any
+`nixpkgs.lib` / `evalModules` / nixpkgs input creeps back into the library source.
 
 ## Theoretical Foundations
 
 | Paper | Relationship | Used for |
 |-------|-------------|----------|
 | Mokhov, Mitchell & Peyton Jones (2018) "Build Systems à la Carte" | **Implements** | The rebuilder dimension, factored from the scheduler (gen-scope) and topology oracle (gen-graph); the dirty-bit rebuilder over the flat store (§3.1) + verifying trace (§4.2.2), `verify` (§4.2), acyclicity precheck (§2.1/§4.1) |
-| Reps, Teitelbaum & Demers (1983) | Informed by | The AFFECTED set (§4.3, `affectedSet`/the post-filter), the unchanged-value cutoff (§4.1, `earlyCutoff`), NeedToBeEvaluated (§5.3, `needsEval`); true `O(\|AFFECTED\|)` optimality + characteristic graphs were the v3 go/no-go gate — spike verdict: unreachable in a pure eval, needs the cross-eval substrate (FUTURE_WORK.md) |
+| Reps, Teitelbaum & Demers (1983) | Informed by | The AFFECTED set (§4.3, `affectedSet`/the post-filter), the unchanged-value cutoff (§4.1, `earlyCutoff`), NeedToBeEvaluated (§5.3, `needsEval`); true `O(\|AFFECTED\|)` optimality + characteristic graphs were the v3 go/no-go gate — spike verdict: unreachable in a pure eval, needs the cross-eval substrate |
 | Acar et al. (2002) "Adaptive Functional Programming" | Informed by | The change/propagate split (§4.3 `applyDelta`, §4.5 `propagate`), the reverse-topo splice (§7 correctness), the adg read backward for `support` (§4.4); containment recovery for `O(\|AFFECTED\|)` was the v3 open problem — closed for pure eval by the spike (needs the cross-eval substrate) |
 | Forgy (1982) "RETE" | Informed by | The ± change-token vocabulary: `applyDelta`/`batch` are the `+` token, `applyEdgeDelta` is `modify = delete + add` |
 | Hammer et al. (2014) "Adapton" | Informed by | The demand/force interface (`force`/`forceCtx`). Note: our force is **full-drain**, not Adapton's selective per-edge repair (the dropped S6 seam, impure / O(N²) in pure Nix) |
@@ -492,8 +500,6 @@ and the cyclic/structural generators.
 | Arntzenius & Krishnaswami (2016) "Datafun" | Informed by | The dependent cone is gen-graph's reverse reachability (a Datafun-derived query); Lemma 4 (finite-height iterate-from-⊥) grounds `runScc`'s genuine-join lattices |
 | Sloane (2010) §2.2 / Magnusson–Hedin "Circular Reference Attributes" | Informed by | The overwrite / no-op "join" case for `runScc`: naive iterate-to-stabilization (converges by peer-agreement, not lattice ascent) |
 | Tarjan (1972) / Kosaraju | Informed by | The SCC partition + condensation (via gen-graph, closure-based O(n²)) that stratifies the cyclic `build`/`restabilize` solve producers-first |
-
-Full design + milestones: `den-architecture/gen-specs/gen-rebuild/`.
 
 ## License
 

@@ -8,7 +8,7 @@
   # consumes it. The sketched warm-cache adapter (gen-scope `evalWarm`) was found
   # unsound (it resolved deps via its own fixpoint, not the relocatable store) and
   # never wired; cross-eval/cross-host reuse uses frozen-snapshot value-passing on
-  # the deferred substrate (gen-specs/gen-rebuild/FUTURE_WORK.md), not a warm cache.
+  # the deferred substrate (future work), not a warm cache.
   scope,
 }:
 let
