@@ -1,5 +1,5 @@
 result
 .direnv
 .gcroots
-# generated per-machine by the ci devshell's git-hooks (a nix-store symlink)
+.worktrees/
 .pre-commit-config.yaml
