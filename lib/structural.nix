@@ -10,9 +10,17 @@
 # precheck never saw), never Nix's uncatchable infinite recursion.
 #
 # Theory citations:
-#   - Radul 2009 §6.2 `kick-out!` — retract is the DESTRUCTIVE delete half only
-#     (NAME-faithful): no TMS-rememberable worldview / no premise lattice. Ours is
-#     the contract declared-edge producer set, not a minimal-premise support set.
+#   - Radul 2009 §6.2 `kick-out!` — THE NAME ONLY, and the borrowing is narrower than
+#     "a half". Radul's `kick-out!` DELETES NOTHING. It marks a premise out of the
+#     current worldview and alerts the propagators — `(if (premise-in? premise)
+#     (alert-all-propagators!)) (mark-premise-out! premise)` — and its dual
+#     `bring-in!`, defined three lines later, marks it back in; §6.2 calls it "a means
+#     to remove premises from the current worldview", after which the TMS query falls
+#     back to a less-informative inference. It is REVERSIBLE, and there are no halves.
+#     `retract`'s destructive delete is gen-rebuild's OWN choice, not a fraction of
+#     Radul's operation; the delete MECHANISM is Acar's, below. Also absent, as before:
+#     no TMS-rememberable worldview / no premise lattice. Ours is the contract
+#     declared-edge producer set, not a minimal-premise support set.
 #   - Acar 2002 §4.5 — obsolete-edge splice-out is the retract MECHANISM (prune the
 #     dead node + recompute its dependent cone). "Purity" here = PERSISTENCE of the
 #     reader closures (Acar §8), NOT effect-freedom — `requiredBy` catches DECLARED
@@ -96,7 +104,8 @@ in
 {
   inherit mkAccessor;
 
-  # retract — delete deadId from the graph (Radul kick-out!, destructive half).
+  # retract — delete deadId from the graph. The NAME is Radul's `kick-out!` (§6.2);
+  # the destructive delete is ours — his marks a premise out reversibly (see header).
   #
   # retractPolicy ∈ { "error", "recompute-without" } (default "error"):
   #   "error"             — throw a LOCATED blame if deadId has DECLARED in-edges

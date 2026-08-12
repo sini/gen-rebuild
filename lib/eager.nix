@@ -3,7 +3,10 @@
 # Rank-ordered eager-push propagate: recompute ONLY enqueued nodes in producers-first rank
 # order; on a moved node enqueue its DIRECT in-cone dependents; cut off on no-move.
 # store = ctx.store // settled (the §4(B) carry: unmoved + non-cone deps come from priorStore).
-# BYTE-IDENTICAL to propagate/build (RTD 1983 §4.3/§5 eager topological push).
+# BYTE-IDENTICAL to propagate/build. ★ The TOPOLOGICAL propagation order and the AFFECTED
+# post-filter are RTD 1983's (§4.3/§5) and are verified at the primary. "Eager push" is THIS
+# LIBRARY'S OWN name for its own cut-heavy variant: the word does not occur in that paper, and
+# the characterisation is not attributed to it.
 #
 # WHEN TO USE: localized (cut-heavy) edits — it constructs only O(|AFFECTED|+frontier) nodes
 # vs propagate's O(|cone|). Opt-in: `propagate` stays the general default.

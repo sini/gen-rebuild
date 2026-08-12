@@ -37,7 +37,7 @@ source fails the build.
 | Trace | per-key `{ deps; hash }` verifying record | Mokhov 2018 (verifying trace) |
 | Cone | dependent cone of `x` — everyone who transitively depends on x | gen-graph (reverse reachability) |
 | Dirty set | changed ids ∪ their dependent cones (v1 over-approx) | Reps–Teitelbaum–Demers 1983 (AFFECTED set) |
-| Splice | `priorStore // fix-of-cone` — recompute the cone, reuse rest | Acar 2002 (change propagation) |
+| Splice | `priorStore // fix-of-cone` — recompute the cone, reuse rest | gen-rebuild's own mechanism and phrase; it *realizes* Acar 2002 change propagation (§4.5/§7), which is not the same as being his |
 | BuiltCtx | the threaded `{ store, trace, accessor, recompute, hashOf }` | — |
 | AFFECTED | the keys whose value *actually* moved — post-filtered, not precomputed | Reps–Teitelbaum–Demers 1983 §4.3 |
 | Early-cutoff | reuse a node whose inputs are all unchanged-hash | RTD 1983 (§4.1 value-cutoff, §5.3 NeedToBeEvaluated) |
@@ -307,8 +307,10 @@ override       :: BuiltCtx -> changedId -> newDecls -> BuiltCtx
 - `propagate` — Acar §4.5 drain-to-quiescence: union-cone splice over all seeds,
   `needsEval`-gated, clearing `pending`.
 - `propagateEager` — opt-in **cut-heavy fast path**: a rank-ordered eager-push that
-  constructs only `O(|AFFECTED| + frontier)` nodes on localized edits (RTD §4.3/§5
-  eager topological push), byte-identical to `propagate`. A constant-factor
+  constructs only `O(|AFFECTED| + frontier)` nodes on localized edits, byte-identical
+  to `propagate`. The **topological** propagation order and the AFFECTED post-filter
+  are RTD §4.3/§5; "eager push" is gen-rebuild's own name for its own variant and is
+  not the paper's term. A constant-factor
   expensive-axis win on cut-heavy edits — **not** a total-work `O(|AFFECTED|)` bound
   (it still pays `O(|cone|)` cheap drive bookkeeping). Use `propagate` for full
   rebuilds; see [Cut-heavy fast path](#cut-heavy-fast-path).
@@ -331,8 +333,12 @@ applyEdgeDelta :: BuiltCtx -> changedId -> newEdges -> BuiltCtx
 ```
 
 - `mkAccessor` — rebuild a full accessor record (`edges` deduped via `prelude.unique`).
-- `retract` — Radul §6.2 `kick-out!` (destructive half): delete `deadId` and splice
-  it out of every dependent. `retractPolicy ∈ { "error", "recompute-without" }`
+- `retract` — delete `deadId` and splice it out of every dependent. The **name** is
+  borrowed from Radul §6.2 `kick-out!`; the destructive delete is not. Radul's
+  `kick-out!` marks a premise out of the current worldview and is undone by its dual
+  `bring-in!` — it is reversible and deletes nothing, so `retract` is gen-rebuild's own
+  operation under a borrowed name, not a "half" of his. The delete mechanism is Acar
+  §4.5 obsolete-edge splice-out. `retractPolicy ∈ { "error", "recompute-without" }`
   (default `"error"` throws on declared in-edges). No cycle recheck — deletion only
   shrinks the graph.
 - `applyEdgeDelta` — Forgy `modify = delete + add` over a node's edge set: replace
@@ -503,7 +509,7 @@ seeded generators). The `purity` suite is the Class-B invariant: it fails CI if 
 | Acar et al. (2002) "Adaptive Functional Programming" | Informed by | The change/propagate split (§4.3 `applyDelta`, §4.5 `propagate`), the change-propagation algorithm (§7 correctness), the adg read backward for `support` (§4.4). The **reverse-topo splice** is gen-rebuild's own mechanism and its own phrase (`priorStore // fix-of-cone`) — Acar et al. do not characterise propagation in reverse topological order, and the phrase is not theirs. Containment recovery for `O(\|AFFECTED\|)` was the v3 open problem — closed for pure eval by the spike (needs the cross-eval substrate) |
 | Forgy (1982) "RETE" | Informed by | The ± change-token vocabulary: `applyDelta`/`batch` are the `+` token, `applyEdgeDelta` is `modify = delete + add` |
 | Hammer et al. (2014) "Adapton" | Informed by | The demand/force interface (`force`/`forceCtx`). Note: our force is **full-drain**, not Adapton's selective per-edge repair (the dropped S6 seam, impure / O(N²) in pure Nix) |
-| Radul & Sussman (2009) "Art of the Propagator" | Informed by | Provenance (§6.1 support, **name-faithful only** — `support`/`why`/`whyNot`) + retraction (§6.2 `kick-out!`, `retract`'s destructive-delete half); no TMS / merge-lattice / worldviews |
+| Radul & Sussman (2009) "Art of the Propagator" | Informed by | Provenance (§6.1 support, **name-faithful only** — `support`/`why`/`whyNot`) + the **name** `kick-out!` for `retract` (§6.2). ★ Radul's `kick-out!` is a **reversible premise-marker, not a delete**: it marks a premise out of the current worldview, its dual `bring-in!` marks it back in, and nothing is removed from the graph — so `retract`'s destructive delete is gen-rebuild's own operation under a borrowed name, not a "half" of his (its mechanism is Acar §4.5). No TMS / merge-lattice / worldviews |
 | Arntzenius & Krishnaswami (2016) "Datafun" | Informed by | The dependent cone is gen-graph's reverse reachability (a Datafun-derived query); Lemma 4 (finite-height iterate-from-⊥) grounds `runScc`'s genuine-join lattices |
 | Sloane (2010) §2.2 / Magnusson–Hedin "Circular Reference Attributes" | Informed by | The overwrite / no-op "join" case for `runScc`: naive iterate-to-stabilization (converges by peer-agreement, not lattice ascent) |
 | Tarjan (1972) / Kosaraju | Informed by | The SCC partition + condensation (via gen-graph, closure-based O(n²)) that stratifies the cyclic `build`/`restabilize` solve producers-first |
