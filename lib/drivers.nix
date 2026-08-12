@@ -1,12 +1,13 @@
 # drivers — Acar change/propagate split: applyDelta + propagate + force
 #
-# De-conflates Acar's change (δ ⊕ σ, instantaneous data-change) from propagate
+# De-conflates Acar's change (σ ⊕ δ, the store modified by a difference store —
+# Definition 9 defines the operator in that order only) from propagate
 # (drain dirty-set to quiescence over the dependency cone). `override` is the
 # fused convenience: `override = propagate ∘ applyDelta`.
 #
 # Theory citations:
 #   - Acar 2002 §4.3 (change), §4.5 (propagate algorithm), §7 (correctness)
-#   - Forgy 1982 (token vocabulary: Acar's δ ⊕ σ is Forgy's `+` change token)
+#   - Forgy 1982 (token vocabulary: Acar's σ ⊕ δ is Forgy's `+` change token)
 #   - Hammer 2014 (Adapton force/demand; note: our force is full-drain, not
 #     Adapton's selective per-edge repair — dropped S6)
 #
@@ -17,7 +18,8 @@
 #   - (G2) FLAT REVERSE-CONE FRONTIER: O(|cone|) worst-case here. The cut-heavy
 #     expensive-axis win (construct only O(|AFFECTED|+frontier) on localized edits)
 #     SHIPPED as `propagateEager` (lib/eager.nix). True total-work O(|AFFECTED|) (RTD
-#     S7 characteristic-graph cutoff edges) is NOT reachable in pure single-eval (v3
+#     §5.2/§5.4 characteristic-graph cutoff edges — NOT §7, which is the comparison
+#     with alternative methods) is NOT reachable in pure single-eval (v3
 #     spike verdict: PARTIAL) — it needs the deferred cross-eval substrate
 #     (future work), not a pure v3 component.
 #   - (G3) FUSED-LAW specialized to no-fresh-ids (stable contract ids) —
@@ -111,7 +113,7 @@ rec {
                 spliced = ctx.store // s;
                 # EVERY seed is a forced recompute, not just the first. needsEval's
                 # `id == changedId` clause fires for a SINGLE changed input; a batch
-                # has N changed inputs (Acar §4.3: each δ ⊕ σ dirties its own node),
+                # has N changed inputs (Acar §4.3: each σ ⊕ δ dirties its own node),
                 # so a seed whose OWN data changed must recompute even when its dep
                 # hashes did not move (its value comes from the new nodeData, not from
                 # a moved dependency). Gating on only `prelude.head seeds` would reuse the

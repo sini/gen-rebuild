@@ -14,7 +14,8 @@
 # to the set `override` re-hashes, and `affected ⊆ cone` by construction.
 #
 # `needsEval` is imported from strategies.nix — the ONE definition (no inlined
-# parallel predicate). hashMoved (lib/hash.nix §3.5 gate) is null-safe: a
+# parallel predicate). hashMoved (lib/hash.nix, the v2 §3.5 gate — internal spec
+# coordinate, not a paper's) is null-safe: a
 # function-bearing cone node (hash = null) is always affected, never false-clean.
 #
 # Precondition (RTD's never-assign-non-final invariant relies on it): acyclic AND

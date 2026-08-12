@@ -58,7 +58,8 @@ let
   };
 
   # ===== applyDelta: data-change records dirtiness, recomputes NOTHING =====
-  # Acar §4.3: change is the instantaneous δ ⊕ σ — it mutates the *input* and marks
+  # Acar §4.3: change is the instantaneous σ ⊕ δ (Definition 9's operand order) — it
+  # mutates the *input* and marks
   # the cone dirty, but performs NO recomputation. The store/trace stay STALE until
   # a propagate drains them. This is the pure set→force split (dirtiness as a value).
   staleC = applyDelta chainCtx "c" { weight = 200; };
