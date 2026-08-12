@@ -49,11 +49,14 @@ Overriding host **h1** (`weight := 100`):
 
 ## Contrast: the dirty-bit rebuilder vs. an effects paradigm (zen)
 
-gen-rebuild is the **rebuilder** dimension of Mokhov 2018 made explicit: a
-topology oracle (gen-graph) + a flat relocatable result-store + a reverse-topo
-splice (`priorStore // fix-of-cone`). The reuse decision is a *dirty-bit over a
-dependency graph* — "given the last eval, must K be recomputed?" — and reuse is a
-store splice you can inspect as plain data.
+gen-rebuild is the **rebuilder** dimension of Mokhov 2018 made explicit — the
+dimension is the paper's, the rest of this list is gen-rebuild's own: a topology
+oracle (gen-graph) + a flat relocatable result-store + a reverse-topo splice
+(`priorStore // fix-of-cone`). Neither the store's flatness and relocatability nor
+the reverse-topo splice comes from a paper; see the provenance table in the
+top-level README. The reuse decision is a *dirty-bit over a dependency graph* —
+"given the last eval, must K be recomputed?" — and reuse is a store splice you can
+inspect as plain data.
 
 zen (Vic's stream/effects module system: bend / nix-effects / dnzl) reaches the
 *same* incremental behaviour from the other side — **algebraic effects**. Instead of an explicit store + dirty-bit, a host's evaluation is an

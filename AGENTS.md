@@ -2,7 +2,7 @@
 
 ## Scope
 
-The rebuilder dimension (Mokhov 2018) as a pure-Nix library: owns a flat relocatable result-store plus a per-key verifying trace, decides node reuse, and drives change propagation over a caller-supplied `recompute`. It is **not in the hub roster** — `gen/lib/mkGenLibs.nix` has no `rebuild` entry, so it is consumed directly via `inputs.gen-rebuild.lib`, never through `mkGenLibs`.
+The rebuilder dimension (Mokhov 2018) as a pure-Nix library: owns a result-store — flat and relocatable, which are **this library's own properties of it, not Mokhov's** — plus a per-key verifying trace, decides node reuse, and drives change propagation over a caller-supplied `recompute`. It is **not in the hub roster** — `gen/lib/mkGenLibs.nix` has no `rebuild` entry, so it is consumed directly via `inputs.gen-rebuild.lib`, never through `mkGenLibs`.
 
 **Consumers** (`git grep` over `*flake.nix` across `/home/sini/Documents/repos/sini/gen-*`, this run): `gen-resolve` alone — `flake.nix:13` and `ci/flake.nix:6`, bound as `rebuild = gen-rebuild.lib` (`gen-resolve/flake.nix:31`) and called at `gen-resolve/lib/resolve.nix:37` and `gen-resolve/lib/override.nix:60`, both `rebuild.build`. den-hoag reaches it **transitively only**: `gen-rebuild` appears in `flake.lock`, `ci/flake.lock` and `parity/flake.lock` with `gen-resolve` as the sole node naming it as an input, and in no den-hoag `flake.nix`.
 
@@ -163,12 +163,12 @@ Read, not exercised in this run: `runScc`'s `widen` hook and its `maxIter` diver
 
 **Implements**
 
-- **Mokhov, Mitchell & Peyton Jones (2018), *Build Systems à la Carte*** — the rebuilder dimension factored from the scheduler and the topology oracle: the flat relocatable store (§3.1), the verifying trace (§4.2.2), `verify` (§4.2), the acyclicity precheck (§2.1/§4.1). `lib/build.nix:1-6`. The `hash = null` rule for unhashable values is stated in `lib/hash.nix:3-8` as an operational Nix fact with **no** paper behind it — Mokhov assumes a total `hash`.
+- **Mokhov, Mitchell & Peyton Jones (2018), *Build Systems à la Carte*** — the rebuilder dimension factored from the scheduler and the topology oracle: the store (§3.1), the verifying trace (§4.2.2), `verify` (§4.2), the acyclicity precheck (§2.1/§4.1). `lib/build.nix:1-8`. ★ **§3.1 gives the store as a mapping from keys to values and nothing more** — it does not say *flat* and does not say *relocatable*. Those two are gen-rebuild's own properties of its own store, asserted locally (`README.md:71-76`, `lib/build.nix:1`); do not carry them into another library as the paper's. The `hash = null` rule for unhashable values is stated in `lib/hash.nix:3-8` as an operational Nix fact with **no** paper behind it — Mokhov assumes a total `hash`.
 
 **Informed by** (README's own label)
 
 - **Reps, Teitelbaum & Demers (1983)** — AFFECTED (§4.3, `affectedSet` and the post-filter), the unchanged-value cutoff (§4.1, `earlyCutoff`), NeedToBeEvaluated (§5.3, `needsEval`). True `O(|AFFECTED|)` optimality and characteristic graphs are recorded as **not reached** in pure evaluation.
-- **Acar et al. (2002), *Adaptive Functional Programming*** — the change/propagate split (§4.3, §4.5), the reverse-topo splice (§7 correctness), the adg read backward for `support` (§4.4).
+- **Acar et al. (2002), *Adaptive Functional Programming*** — the change/propagate split (§4.3, §4.5), the change-propagation algorithm (§7 correctness), the adg read backward for `support` (§4.4). ★ **The "reverse-topo splice" is NOT Acar's** — neither the phrase nor the reverse-topological-order characterisation appears in the paper. It is gen-rebuild's own name for its own mechanism (`priorStore // fix-of-cone`, `lib/override.nix:65`); the change/propagate split around it is genuinely Acar's.
 - **Forgy (1982), *RETE*** — change-token vocabulary only: `applyDelta`/`batch` as `+`, `applyEdgeDelta` as `modify = delete + add`.
 - **Hammer et al. (2014), *Adapton*** — the demand/force interface. `force` is explicitly full-drain, **not** Adapton's selective per-edge repair (`lib/drivers.nix:14-16`, gap G1).
 - **Radul & Sussman (2009), *Art of the Propagator*** — provenance (§6.1 support) and retraction (§6.2 `kick-out!`), both marked **name-faithful only**: no TMS, no merge-lattice, no worldviews (`lib/provenance.nix:10-13`, `lib/structural.nix:13-15`).

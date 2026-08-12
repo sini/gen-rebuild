@@ -1,9 +1,13 @@
 # build — full evaluation into a flat relocatable store + a verifying trace.
 #
-# Mokhov 2018: §3.1 Store (flat relocatable id-keyed map; call-by-need
-# dependency-order resolution via `prelude.fix`) + §4.2.2 verifying trace (per-key
-# `{ deps; hash }`) + §2.1/§4.1 acyclicity (cyclic deps not allowed ⇒ each task
-# executed at most once).
+# Mokhov 2018: §3.1 Store + §4.2.2 verifying trace (per-key `{ deps; hash }`) +
+# §2.1/§4.1 acyclicity (cyclic deps not allowed ⇒ each task executed at most once).
+#
+# WHAT §3.1 ACTUALLY SUPPLIES is the store as a mapping from keys to values. FLAT
+# and RELOCATABLE are this library's own properties of its own store, not the
+# paper's — an id-keyed map of plain values, with call-by-need dependency-order
+# resolution via `prelude.fix`. They are asserted here and argued at README.md:71-76;
+# they are not to be cited to Mokhov.
 #
 # Consumes a gen-graph accessor (the topology oracle) and a caller-supplied
 # `recompute` (the node-eval, `accessor -> store -> id -> value`). Pre-checks
@@ -79,9 +83,10 @@ let
               path = graph.pathsBetween accessor a b;
             };
 
-          # Flat relocatable store (Mokhov 2018 §3.1): prelude.fix resolves deps in
-          # dependency order via call-by-need; terminates because the precheck
-          # guarantees acyclicity.
+          # The store Mokhov 2018 §3.1 names, in the flat relocatable shape this
+          # library chose for it (that shape is ours, not §3.1's — see the header):
+          # prelude.fix resolves deps in dependency order via call-by-need;
+          # terminates because the precheck guarantees acyclicity.
           store = prelude.fix (s: prelude.genAttrs accessor.nodes (id: recompute accessor s id));
           trace = traceFor store;
         in

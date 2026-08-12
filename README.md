@@ -33,7 +33,7 @@ source fails the build.
 | Term | Definition | Source |
 | ---------- | -------------------------------------------------------------- | ------------------------------------- |
 | Rebuilder | decides reuse: "must K be recomputed, given last time?" | Mokhov 2018 |
-| Store | flat relocatable id-keyed result map `{ <id> = value; }` | Mokhov 2018 (result store) |
+| Store | flat relocatable id-keyed result map `{ <id> = value; }` | Mokhov 2018 §3.1 for the *store* (keys → values); **flat** and **relocatable** are gen-rebuild's own design properties, not the paper's |
 | Trace | per-key `{ deps; hash }` verifying record | Mokhov 2018 (verifying trace) |
 | Cone | dependent cone of `x` — everyone who transitively depends on x | gen-graph (reverse reachability) |
 | Dirty set | changed ids ∪ their dependent cones (v1 over-approx) | Reps–Teitelbaum–Demers 1983 (AFFECTED set) |
@@ -69,7 +69,11 @@ gen-rebuild (rebuilder)  ◄── THIS LIB
 ```
 
 It owns a flat, **relocatable** result-store (plain values, not thunks closed over
-a `prelude.fix self`) — relocatability is what makes reuse-across-change possible. A
+a `prelude.fix self`) — relocatability is what makes reuse-across-change possible.
+Flatness and relocatability are **gen-rebuild's own design properties, asserted here
+and not taken from any paper**: Mokhov 2018 §3.1 defines a store as a mapping from
+keys to values and says nothing about either. A reader carrying this phrase into
+another library should carry it as gen-rebuild's claim, not as a cited result. A
 change recomputes only the dependent **cone** via a reverse-topo splice
 (`priorStore // fix-of-cone`); everything else is reused byte-for-byte. The acyclic
 core runs its own thin store-backed `prelude.fix` eval loop; the cyclic path stratifies
@@ -494,9 +498,9 @@ seeded generators). The `purity` suite is the Class-B invariant: it fails CI if 
 
 | Paper | Relationship | Used for |
 |-------|-------------|----------|
-| Mokhov, Mitchell & Peyton Jones (2018) "Build Systems à la Carte" | **Implements** | The rebuilder dimension, factored from the scheduler (gen-scope) and topology oracle (gen-graph); the dirty-bit rebuilder over the flat store (§3.1) + verifying trace (§4.2.2), `verify` (§4.2), acyclicity precheck (§2.1/§4.1) |
+| Mokhov, Mitchell & Peyton Jones (2018) "Build Systems à la Carte" | **Implements** | The rebuilder dimension, factored from the scheduler (gen-scope) and topology oracle (gen-graph); the dirty-bit rebuilder over the store (§3.1 — the paper's store is a keys→values mapping; *flat* and *relocatable* are gen-rebuild's own properties of its store, not §3.1's) + verifying trace (§4.2.2), `verify` (§4.2), acyclicity precheck (§2.1/§4.1) |
 | Reps, Teitelbaum & Demers (1983) | Informed by | The AFFECTED set (§4.3, `affectedSet`/the post-filter), the unchanged-value cutoff (§4.1, `earlyCutoff`), NeedToBeEvaluated (§5.3, `needsEval`); true `O(\|AFFECTED\|)` optimality + characteristic graphs were the v3 go/no-go gate — spike verdict: unreachable in a pure eval, needs the cross-eval substrate |
-| Acar et al. (2002) "Adaptive Functional Programming" | Informed by | The change/propagate split (§4.3 `applyDelta`, §4.5 `propagate`), the reverse-topo splice (§7 correctness), the adg read backward for `support` (§4.4); containment recovery for `O(\|AFFECTED\|)` was the v3 open problem — closed for pure eval by the spike (needs the cross-eval substrate) |
+| Acar et al. (2002) "Adaptive Functional Programming" | Informed by | The change/propagate split (§4.3 `applyDelta`, §4.5 `propagate`), the change-propagation algorithm (§7 correctness), the adg read backward for `support` (§4.4). The **reverse-topo splice** is gen-rebuild's own mechanism and its own phrase (`priorStore // fix-of-cone`) — Acar et al. do not characterise propagation in reverse topological order, and the phrase is not theirs. Containment recovery for `O(\|AFFECTED\|)` was the v3 open problem — closed for pure eval by the spike (needs the cross-eval substrate) |
 | Forgy (1982) "RETE" | Informed by | The ± change-token vocabulary: `applyDelta`/`batch` are the `+` token, `applyEdgeDelta` is `modify = delete + add` |
 | Hammer et al. (2014) "Adapton" | Informed by | The demand/force interface (`force`/`forceCtx`). Note: our force is **full-drain**, not Adapton's selective per-edge repair (the dropped S6 seam, impure / O(N²) in pure Nix) |
 | Radul & Sussman (2009) "Art of the Propagator" | Informed by | Provenance (§6.1 support, **name-faithful only** — `support`/`why`/`whyNot`) + retraction (§6.2 `kick-out!`, `retract`'s destructive-delete half); no TMS / merge-lattice / worldviews |
