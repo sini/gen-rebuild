@@ -1,13 +1,13 @@
 {
   inputs = {
-    gen.url = "github:sini/gen";
+    gen-harness.url = "github:sini/gen-harness";
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
     gen-graph.url = "github:sini/gen-graph";
     gen-scope.url = "github:sini/gen-scope";
   };
   outputs =
     inputs@{
-      gen,
+      gen-harness,
       nixpkgs,
       gen-graph,
       gen-scope,
@@ -20,7 +20,7 @@
       genRebuild = import ../../. { inherit lib graph scope; };
       spike = import ../. { inherit lib graph genRebuild; };
     in
-    gen.lib.mkCi {
+    gen-harness.lib.mkCi {
       inherit inputs;
       name = "gen-rebuild-v3-spike";
       testModules = ./tests;
