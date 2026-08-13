@@ -277,6 +277,8 @@ support       :: BuiltCtx -> id -> [id]
 supportDirect :: BuiltCtx -> id -> [id]
 why           :: BuiltCtx -> { id, changedId, cutoffs ? {} } -> WhyResult
 whyNot        :: BuiltCtx -> { id, changedId, cutoffs ? {} } -> reason | null
+whyFor        :: BuiltCtx -> { changedId, cutoffs ? {} } -> id -> WhyResult
+whyNotFor     :: BuiltCtx -> { changedId, cutoffs ? {} } -> id -> reason | null
 ```
 
 - `support` — the transitive declared producers of `id` (the dual of `affected`),
@@ -285,6 +287,13 @@ whyNot        :: BuiltCtx -> { id, changedId, cutoffs ? {} } -> reason | null
 - `why` — the verdict an override of `changedId` *would* produce for `id`:
   `unaffected` / `recomputed` / `cutoff` (Acar §7 read-rule, reframed).
 - `whyNot` — the negative wrapper: `null` when recomputed, else the reason.
+- `whyFor` / `whyNotFor` — the amortized duals, curried on `changedId`. Membership
+  in the recompute cone is loop-invariant across the ids of one change, so these
+  bind the cone once (Arntzenius reverse reachability, via `dirtySet`) and return a
+  function to spend over as many ids as the caller has. `why` / `whyNot` keep the
+  per-call point query: the amortization is the caller's decision, not a cost
+  imposed on the caller asking once. Only the **membership** decision is amortized —
+  under a non-empty cutoff overlay both routes enumerate paths per id alike.
 
 ### Drivers
 
