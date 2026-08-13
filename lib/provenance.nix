@@ -15,9 +15,12 @@
 #   why : the verdict an override of `changedId` would produce for `id`. Acar 2002
 #     §7 read-rule, reframed: l∈C → recomputed, cmp-unchanged → cutoff, l∉C →
 #     unaffected. `graph.canReach ctx.accessor id changedId` is the single
-#     O(reachable) verdict fast path (forward edges — NOT transposed: dependentsOf/
-#     canReach already traverse consumer→producer directly). `graph.pathsBetween`
-#     (exponential worst case) is reserved for explain-mode + the cutoff overlay.
+#     Θ( Σ_{u ∈ reach id} (1 + outdeg u) ) verdict fast path — reducing to the
+#     cone's size only at BOUNDED out-degree, Θ(n²) on a complete DAG, since the
+#     operator re-reads `edges` at every visit (forward edges — NOT transposed:
+#     dependentsOf/canReach already traverse consumer→producer directly).
+#     `graph.pathsBetween` (exponential worst case) is reserved for explain-mode +
+#     the cutoff overlay.
 #
 #   whyNot : the negative operator query — null when recomputed, else the reason.
 #
@@ -49,9 +52,11 @@ let
   #   WhyResult = { verdict = "unaffected"; }
   #             | { verdict = "recomputed"; paths :: [[id]]; }   (paths only in explain/overlay)
   #             | { verdict = "cutoff"; cutNodes :: [id]; paths :: [[id]]; }
-  # The verdict fast path (canReach) answers unaffected/recomputed in O(reachable)
-  # and carries NO paths key when `cutoffs == {}`; paths/cutNodes are materialized
-  # only under a non-empty cutoff overlay (or explain mode).
+  # The verdict fast path (canReach) answers unaffected/recomputed in
+  # Θ( Σ_{u ∈ reach id} (1 + outdeg u) ) — reducing to the cone's size only at
+  # BOUNDED out-degree — and carries NO paths key when `cutoffs == {}`;
+  # paths/cutNodes are materialized only under a non-empty cutoff overlay (or
+  # explain mode).
   why =
     ctx:
     {
