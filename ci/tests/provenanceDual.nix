@@ -95,12 +95,13 @@ let
 
   # ★ THE OVERLAY CELLS SPLIT IN TWO, AND THE SPLIT IS THE PER-CALL FORM'S OWN BEHAVIOUR
   # RATHER THAN AN EXEMPTION CARVED FOR THE DUAL. At `id == changedId` the path set is the
-  # single one-node path [id], whose INTERIOR is `init (tail [id])` = `init [ ]` — and that
-  # raises. So `why ctx { id = changedId; …; cutoffs = <non-empty> }` does not return a
-  # verdict at all; it fails, and it does so in the shipped library, at the shipped commit,
-  # with no dual in the tree. Answer preservation over those cells is therefore the
-  # statement that the dual FAILS WHERE THE PER-CALL FORM FAILS — asserted below, at every
-  # one of them, rather than skipped. The remaining cells compare as whole records.
+  # single one-node path [id], whose INTERIOR is empty — the endpoints coincide, so nothing
+  # lies strictly between them, and the change origin has never been cuttable. These 120
+  # cells USED TO RAISE: `interior` reached `init [ ]` and gen-prelude refused, so the query
+  # answered with a list primitive's error rather than a verdict. `_verdict` now guards the
+  # singleton, and BOTH routes move together because both are that one function — which is
+  # what these cells check. They are kept separate from the 540 not because they are exempt
+  # but because their count is the pinned reading: one origin cell per seed.
   isOrigin = cell: cell.id == cell.c.changedId;
   overlayValueCells = builtins.filter (cell: !(isOrigin cell)) cells;
   overlayOriginCells = builtins.filter isOrigin cells;
@@ -132,9 +133,25 @@ let
     } cell.id
   );
 
-  # The origin cells: both routes are forced to a value and both must refuse. `deepSeq`
-  # because the refusal lives inside the returned record's fields, and a `tryEval` over an
-  # unforced attrset would report success for a value nobody looked at.
+  # The origin cells, as whole records: both routes must RETURN, and return the same thing.
+  # The record comparison is the same one the 540 get — the split is in the cell list, never
+  # in the predicate.
+  mismatchWhyOverlayOrigin = mismatchesOver overlayOriginCells (
+    cell:
+    why cell.ctx {
+      inherit (cell) id;
+      inherit (cell.c) changedId;
+      cutoffs = overlayOf cell;
+    } == whyFor cell.ctx {
+      inherit (cell.c) changedId;
+      cutoffs = overlayOf cell;
+    } cell.id
+  );
+
+  # Equality alone would be satisfied by two routes that refuse identically, which is
+  # precisely the state these cells were in before the singleton guard. `deepSeq` because a
+  # refusal lives inside the returned record's fields and a `tryEval` over an unforced
+  # attrset reports success for a value nobody looked at.
   survives = e: (builtins.tryEval (builtins.deepSeq e true)).success;
   overlayOriginParity = map (cell: {
     inherit (cell) seed id;
@@ -153,7 +170,24 @@ let
     );
   }) overlayOriginCells;
   overlayOriginDisagreements = builtins.filter (r: r.perCall != r.dual) overlayOriginParity;
-  overlayOriginBothRefuse = builtins.filter (r: !r.perCall && !r.dual) overlayOriginParity;
+  overlayOriginBothReturn = builtins.filter (r: r.perCall && r.dual) overlayOriginParity;
+
+  # The verdict every origin cell must carry: the origin is always recomputed, and under an
+  # overlay it carries its own singleton path. Read off the corpus rather than asserted for
+  # one fixture, so a guard that returned some OTHER total answer would still be caught.
+  overlayOriginWrongVerdict = map (cell: { inherit (cell) seed id; }) (
+    builtins.filter (
+      cell:
+      why cell.ctx {
+        inherit (cell) id;
+        inherit (cell.c) changedId;
+        cutoffs = overlayOf cell;
+      } != {
+        verdict = "recomputed";
+        paths = [ [ cell.id ] ];
+      }
+    ) overlayOriginCells
+  );
 
   mismatchWhyNotFast = mismatchesBy (
     cell:
@@ -272,19 +306,32 @@ in
       };
     };
 
-    # ===== the overlay's origin cells: the dual refuses exactly where the per-call form does =====
-    # ★ THIS IS ANSWER PRESERVATION, NOT AN ENDORSEMENT. `why` under a non-empty overlay
-    # raises at `id == changedId` — the one-node path has no interior — and it does so with
-    # or without a dual in the tree. The dual reproducing that refusal is what "the overlay
-    # path falls through unchanged" means; the two cells below assert the agreement and the
-    # coverage separately, so a run in which nothing refused could not read as agreement.
+    # ===== the overlay's origin cells: both routes return, and return the same verdict =====
+    # ★ THESE CELLS USED TO ASSERT A SHARED REFUSAL, and that was answer preservation over a
+    # defect: `why` raised at `id == changedId` under any non-empty overlay, the dual
+    # reproduced it, and the suite pinned the pair. The singleton guard in `_verdict` fixes
+    # both routes at once, because both ARE `_verdict`, and these four cells are what holds
+    # them to moving together. Equality is asserted separately from survival on purpose: two
+    # routes that refuse identically satisfy equality, which is exactly the state this pair
+    # was in before, so the survival count is what makes the empty mismatch list a reading.
     test-overlay-origin-routes-agree = {
       expr = overlayOriginDisagreements;
       expected = [ ];
     };
-    test-overlay-origin-both-refuse-count = {
-      expr = builtins.length overlayOriginBothRefuse;
+    test-overlay-origin-records-agree = {
+      expr = mismatchWhyOverlayOrigin;
+      expected = [ ];
+    };
+    test-overlay-origin-both-return-count = {
+      expr = builtins.length overlayOriginBothReturn;
       expected = 120;
+    };
+    # The origin is always recomputed and can never be cut — there is no interior to cut —
+    # and under an overlay it carries its own one-node path as the witness. Every one of the
+    # 120, not one fixture.
+    test-overlay-origin-verdict-is-recomputed = {
+      expr = overlayOriginWrongVerdict;
+      expected = [ ];
     };
 
     # ===== the controls, fired in the same run as the arms they certify =====

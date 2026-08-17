@@ -176,6 +176,54 @@ in
         }).verdict;
       expected = "recomputed";
     };
+    # THE SAME ORIGIN, UNDER A NON-EMPTY CUTOFF OVERLAY — the branch the row above never
+    # reaches. `pathsBetween d d` is the singleton path [ d ], and its INTERIOR is empty by
+    # definition: the endpoints coincide, so no node lies strictly between them. Before the
+    # guard in `_verdict` this evaluated `init [ ]` and refused with
+    # `gen-prelude.init: list must not be empty` — a prelude list primitive naming neither
+    # the origin, the overlay, nor the query the caller actually asked. The change origin
+    # cannot be cut because there is nothing to cut, so the verdict is `recomputed` and the
+    # singleton path rides along as the witness.
+    #
+    # THE SECOND ARM IS THE LIVE CONTROL AND THE CELL IS INVALID WITHOUT IT: an id with a
+    # real interior, under an overlay marking a node inside it, still cuts. Without it a
+    # green origin row is equally consistent with an overlay that stopped biting anywhere.
+    test-why-origin-under-overlay = {
+      expr = {
+        origin = why chainCtx {
+          id = "d";
+          changedId = "d";
+          cutoffs = {
+            d = true;
+          };
+        };
+        interiorCut = why chainCtx {
+          id = "a";
+          changedId = "d";
+          cutoffs = {
+            b = true;
+          };
+        };
+      };
+      expected = {
+        origin = {
+          verdict = "recomputed";
+          paths = [ [ "d" ] ];
+        };
+        interiorCut = {
+          verdict = "cutoff";
+          cutNodes = [ "b" ];
+          paths = [
+            [
+              "a"
+              "b"
+              "c"
+              "d"
+            ]
+          ];
+        };
+      };
+    };
     # DIRECTION: an override of the root `a` does NOT touch the leaf `d`
     # (d does not depend on a). Proves why does NOT transpose the accessor.
     test-why-unaffected-direction = {

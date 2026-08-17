@@ -90,7 +90,15 @@ let
       # drops `changedId` — a direct edge [id, changedId] has interior [].
       let
         paths = graph.pathsBetween ctx.accessor id changedId;
-        interior = p: prelude.init (prelude.tail p);
+        # THE ORIGIN'S SELF-PATH IS THE SINGLETON, AND ITS INTERIOR IS EMPTY BY THE
+        # DEFINITION ABOVE, not by a carve-out: `pathsBetween x x` is [ x ], whose endpoints
+        # coincide, so no node lies strictly between them. `tail` leaves [ ] and `init [ ]`
+        # refuses — a prelude list primitive naming neither the origin nor the query — so
+        # the guard is what makes `interior` total on the paths `pathsBetween` actually
+        # returns. It changes no other answer: every path of length ≥ 2 takes the same
+        # `init (tail p)` it always did, and an empty interior cuts nothing, which is the
+        # rule the origin already had ("changedId is NEVER an interior node").
+        interior = p: if builtins.length p < 2 then [ ] else prelude.init (prelude.tail p);
         # A node cuts a path iff the overlay marks it true AND it is hashable: a
         # null-hash node is always-dirty and can NEVER be a cutoff (missing overlay
         # key reads false via `or false`).
