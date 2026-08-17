@@ -37,11 +37,11 @@ Overriding host **h1** (`weight := 100`):
    it never calls recompute on them, while a from-scratch build hits the poison
    (`poisonIsReal = true`). The asymmetry is the proof. Running the demo, the
    `recompute <id>` trace markers make the same point visible to the eye.
-1. **Soundness.** `override(ctx, h1, …).store` is byte-identical to a full rebuild
+2. **Soundness.** `override(ctx, h1, …).store` is byte-identical to a full rebuild
    with `h1` changed (`resultEqualsFullRebuild = true`), and the untouched nodes
    are byte-identical to the prior store (`untouchedReused = true`). The override
    store is `{ net=10, h1=110, h2=12, h3=123, gw=245 }`.
-1. **Located cycle.** A variant where the network base depends on the gateway
+3. **Located cycle.** A variant where the network base depends on the gateway
    (`net → gw → h* → net`) yields a *located blame* caught by `tryEval`
    (`cycleIsLocatedBlame = true`) — gen-rebuild runs `graph.cycles` as a
    build-time precheck and throws a `{ why; cycle; path }` record, rather than
