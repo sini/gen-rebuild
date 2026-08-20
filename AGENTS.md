@@ -1,5 +1,18 @@
 # gen-rebuild — agent capability sheet
 
+> **⚠ ARCHIVED — this library has retired; its successor is `gen-memo`.** ADR-0008 rules one
+> incremental plane (gen-memo) over the sole evaluator, and ADR-0008 §4 moves gen-rebuild's content to
+> the plane and retires the library shell with it; ADR-0005 named the carried-forward list. The
+> repository is **orphaned for reference** under ADR-0031's F3 pattern: no content is deleted, nothing
+> is maintained, and gen-rebuild is off the `mkGenLibs` roster and is not a `gen` hub input. **Do not
+> route new work here and do not add a consumer.** It stays archived rather than deleted so existing
+> pins keep resolving.
+>
+> **The content move is complete** — gen-memo's export set is a strict superset of gen-rebuild's (26
+> common, 5 added, 0 lost), and all nine of ADR-0005's carried-forward items are present at the
+> destination with the suite green. Nothing still reads this repository as a source. Everything below
+> describes the retiring surface, not a surface to build on.
+
 ## Scope
 
 The rebuilder dimension (Mokhov 2018) as a pure-Nix library: owns a result-store — flat and relocatable, which are **this library's own properties of it, not Mokhov's** — plus a per-key verifying trace, decides node reuse, and drives change propagation over a caller-supplied `recompute`. It is **not in the hub roster** — `gen/lib/mkGenLibs.nix` has no `rebuild` entry, so it is consumed directly via `inputs.gen-rebuild.lib`, never through `mkGenLibs`.

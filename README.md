@@ -1,5 +1,22 @@
 # gen-rebuild — pure-Nix incremental rebuilder
 
+> ## ⚠ ARCHIVED — this library has retired. Its successor is [gen-memo](https://github.com/sini/gen-memo).
+>
+> **The ruling.** ADR-0008 rules **one incremental plane** — gen-memo — over the sole evaluator, and
+> ADR-0008 §4 moves gen-rebuild's content onto that plane and retires the library shell with it;
+> ADR-0005 named the carried-forward list. The repository is **orphaned for reference** under
+> ADR-0031's F3 pattern: **no content is deleted**, nothing here is maintained, and gen-rebuild is off
+> the `mkGenLibs` roster and is not a `gen` hub input.
+>
+> **Take no new dependency on this repository.** The rebuilder lives in gen-memo, the incremental
+> plane. It stays archived rather than deleted so existing pins keep resolving.
+>
+> **The content move is complete.** gen-memo's export set is a strict superset of gen-rebuild's — 26
+> exports in common, 5 added, **0 lost** — and all nine of ADR-0005's carried-forward items are present
+> at the destination with the suite green. Nothing still reads this repository as a source. The text
+> below is the retiring surface as it stood; it describes what this library did, not what anyone should
+> now build on.
+
 [![CI](https://github.com/sini/gen-rebuild/actions/workflows/ci.yml/badge.svg)](https://github.com/sini/gen-rebuild/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/sini)
 
 gen-rebuild answers one question — **"given the last evaluation, must key K be
